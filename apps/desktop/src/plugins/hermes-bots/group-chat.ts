@@ -751,6 +751,8 @@ export function durableGroupChatRooms(all: Record<string, GroupChat> = $groupCha
       image: room.image || null,
       rosterOrder: room.rosterOrder,
       pinned: room.pinned,
+      // Sidebar filing (user-sections) is room-local; keep it across sync.
+      sectionId: room.sectionId ?? null,
       syncRevision: Math.max(0, Number(room.syncRevision || 0))
     }
   }
@@ -1352,6 +1354,8 @@ export function updateGroupChat(
         image: room.image || null,
         rosterOrder: room.rosterOrder,
         pinned: room.pinned,
+        // Sidebar filing (user-sections) is room-local; keep it durable.
+        sectionId: room.sectionId ?? null,
         syncRevision: Math.max(0, Number(room.syncRevision || 0))
       }
     }
