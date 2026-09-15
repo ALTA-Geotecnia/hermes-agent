@@ -1194,6 +1194,8 @@ export interface Translations {
       moaTitle: string
       moaPreset: string
       moaAggregator: string
+      moaAggregatorBilled: string
+      moaReferenceHint: string
       tasks: Record<string, AuxTaskCopy>
     }
     localModels: {
