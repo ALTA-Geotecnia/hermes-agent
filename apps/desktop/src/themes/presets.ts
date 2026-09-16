@@ -387,7 +387,23 @@ export const slateTheme: DesktopTheme = {
   }
 }
 
+/**
+ * ALTA — the ALTA Geotecnia desktop identity: brand orange primary, brand
+ * green accent, lifted straight from alta-geotecnia.png. ALTA fork default.
+ */
+export const altaTheme: DesktopTheme = {
+  name: 'alta',
+  label: 'Alta AI',
+  description: 'ALTA Geotecnia — orange and green',
+  ...THEME_PRESET_PALETTES.alta,
+  typography: {
+    fontSans: SYSTEM_SANS,
+    fontMono: SYSTEM_MONO
+  }
+}
+
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
+  alta: altaTheme,
   nous: nousTheme,
   github: githubTheme,
   catppuccin: catppuccinTheme,
@@ -403,5 +419,6 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
-/** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+/** Skin used when nothing is persisted or the persisted name is retired.
+ *  ALTA fork: default to the ALTA brand theme instead of upstream's `nous`. */
+export const DEFAULT_SKIN_NAME = 'alta'
