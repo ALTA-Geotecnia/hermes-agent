@@ -3452,6 +3452,7 @@ function repairMacUpdaterHelper(updater) {
 // `hermes.exe` holds open; on POSIX it's never mandatory-locked.
 function venvHermesShimPath(updateRoot) {
   const venvDir = resolveVenvDir(updateRoot)
+
   return IS_WINDOWS
     ? path.join(venvDir, 'Scripts', 'hermes.exe')
     : path.join(venvDir, 'bin', 'hermes')
