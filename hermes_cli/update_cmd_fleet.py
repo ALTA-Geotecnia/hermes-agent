@@ -191,8 +191,11 @@ def _live_fleet_covers_receipt(expected_sha: str | None) -> bool:
 
     try:
         owed = _receipt_owed_gateways()
-        if not owed:
+        if owed is None:
             return False
+        if not owed:
+            from hermes_cli.update_receipt import read_latest_receipt
+            return bool(((read_latest_receipt() or {}).get("plan") or {}).get("runtimes"))
         fleet = collect_fleet_versions()
         if not fleet or any(
             row.get("state") != "current" or row.get("code_sha") != expected_sha
