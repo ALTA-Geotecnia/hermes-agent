@@ -150,8 +150,7 @@ def _receipt_reports_stale_runtime(expected_sha: str | None = None) -> bool:
 def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
     """``(kind, profile)`` identities ``latest.json`` owes a current successor.
 
-    Empty when the receipt records no runtimes; ``None`` when any recorded runtime is one
-    the gateway matrix cannot vouch for (serve/dashboard, unknown profile).
+    Empty when the receipt records no gateways; ``None`` when a runtime cannot be verified or transferred to a durable manual-serve reminder. Manual-serve obligations are persisted separately before a gateway-only probe may discharge the fleet marker.
     """
     from hermes_cli.update_receipt import read_latest_receipt
 
@@ -165,6 +164,10 @@ def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
             return None
         kind = entry.get("kind", default_kind)
         profile = entry.get("profile")
+        if kind in ("serve", "dashboard"):
+            from hermes_cli.update_serve_obligations import defer_manual_serve
+            if defer_manual_serve(entry):
+                continue
         if kind != "gateway" or not profile or profile == "unknown":
             return None
         owed.add((kind, profile))
@@ -269,6 +272,8 @@ def _pending_fleet_restart_needed() -> bool:
     """Reconcile old restart obligations against current, identity-matched gateways."""
     from hermes_cli.update_cmd import _current_checkout_sha
 
+    with suppress(Exception):
+        _receipt_owed_gateways()
     # The marker has no runtime inventory and may belong to a newer, killed update
     # than latest.json. An older receipt cannot discharge that unknown obligation.
     with suppress(OSError):
@@ -295,6 +300,9 @@ def _warn_pending_fleet_restart_on_startup() -> None:
     with suppress(Exception):
         if _pending_fleet_restart_needed():
             _warn_pending_fleet_restart(startup=True)
+    with suppress(Exception):
+        from hermes_cli.update_serve_obligations import warn_pending_manual_serves
+        warn_pending_manual_serves(startup=True)
 
 
 def _systemd_gateway_unit_listings(on_list_timeout=None):
@@ -1559,6 +1567,12 @@ def _verify_fleet_after_update(restart, *, _pre_update_plan, _windows_gateway_re
                     else None
                 ),
             )
+            from dataclasses import asdict
+            from hermes_cli.update_serve_obligations import defer_manual_serve
+
+            for runtime, outcome in zip(_pre_update_plan.runtimes, _runtime_outcomes):
+                if outcome["outcome"] == "unaccounted" and defer_manual_serve(asdict(runtime), require_alive=True):
+                    outcome["outcome"] = "deferred"
             if report_unaccounted_runtimes(_runtime_outcomes):
                 restart.incomplete = True
             with suppress(Exception):
