@@ -242,14 +242,15 @@ def _marker_only_restart_obsolete() -> bool:
     if checkout_sha and checkout_sha != expected_sha:
         return False  # a newer pull moved HEAD; it owns a fresh obligation
     try:
-        from hermes_cli.update_receipt import collect_fleet_versions
+        from hermes_cli.update_receipt import collect_fleet_versions, read_latest_receipt
         fleet = collect_fleet_versions()
         owed = _receipt_owed_gateways()
+        recorded_runtimes = ((read_latest_receipt() or {}).get("plan") or {}).get("runtimes")
     except Exception as exc:
         logger.debug("Fleet probe failed; keeping fleet-restart-pending marker: %s", exc)
         return False
-    if not fleet:
-        return False  # probe answered empty: no proof either way
+    if not fleet and (owed != set() or not recorded_runtimes):
+        return False  # Empty is conclusive only for a recorded, fully transferred manual-only plan.
     for row in fleet:
         if not isinstance(row, dict):
             return False

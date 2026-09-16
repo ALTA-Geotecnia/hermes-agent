@@ -65,12 +65,16 @@ def test_manual_deferral_survives_receipt_rotation(monkeypatch, capsys, kind, co
 @pytest.mark.parametrize("alive", [True, None, False])
 @pytest.mark.parametrize("historical_fleet", ["stale", "current", "empty"])
 @pytest.mark.parametrize("marker", [True, False])
-def test_historical_manual_obligation_does_not_block_healthy_gateway(monkeypatch, capsys, alive, historical_fleet, marker):
+@pytest.mark.parametrize("gateway_present", [True, False])
+def test_historical_manual_obligation_does_not_block_healthy_gateway(monkeypatch, capsys, alive, historical_fleet, marker, gateway_present):
     runtime = RuntimeRecord(kind="serve", profile="work", pid=900, supervisor="manual-serve", restart_via="respawn-argv", detail={"create_time": 1000.0})
     receipt = {"outcome": "partial", "plan": {"runtimes": [asdict(runtime), {"kind": "gateway", "profile": "default"}]}, "fleet": [{"profile": "default", "state": "stale", "code_sha": "old"}]}
     if historical_fleet == "current":
         receipt["fleet"] = [{"profile": "default", "state": "current", "code_sha": "new"}]
     elif historical_fleet == "empty":
+        receipt["fleet"] = []
+    if not gateway_present:
+        receipt["plan"]["runtimes"] = [asdict(runtime)]
         receipt["fleet"] = []
     root = get_hermes_home() / "logs" / "update_receipts"
     root.mkdir(parents=True, exist_ok=True)
@@ -78,7 +82,7 @@ def test_historical_manual_obligation_does_not_block_healthy_gateway(monkeypatch
     monkeypatch.setattr(fleet, "_current_checkout_sha", lambda: "new")
     monkeypatch.setattr("hermes_cli.update_cmd._current_checkout_sha", lambda: "new")
     monkeypatch.setattr(process_identity, "_pid_alive_matches", lambda *a: alive)
-    monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda **k: [{"profile": "default", "state": "current", "code_sha": "new"}])
+    monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda **k: [{"profile": "default", "state": "current", "code_sha": "new"}] if gateway_present else [])
     if marker:
         fleet._write_fleet_restart_pending_marker(expected_sha="new")
     assert fleet._pending_fleet_restart_needed() is False
