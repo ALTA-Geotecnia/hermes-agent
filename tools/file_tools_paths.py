@@ -179,26 +179,8 @@ def _resolve_path_for_task(filepath: str, task_id: str = "default") -> Path | Pu
 
 
 def _path_resolution_warning(filepath: str, resolved: Path, task_id: str = "default") -> str | None:
-    """Warn when a RELATIVE path resolved OUTSIDE the task's workspace root (the
-    edit is about to land in a different checkout than the terminal's cwd).
-    ``None`` for absolute paths, an unknown root, or a path under the root."""
-    try:
-        if Path(_expand_tilde(filepath)).is_absolute():
-            return None
-        workspace_root = _authoritative_workspace_root(task_id)
-        if not workspace_root:
-            return None
-        if _uses_container_paths(task_id):
-            root = _normalize_without_host_deref(Path(_expand_tilde(workspace_root)))
-        else:
-            root = Path(_expand_tilde(workspace_root)).resolve()
-        if resolved.is_relative_to(root):
-            return None
-        return (
-            f"Relative path {filepath!r} resolved to {str(resolved)!r}, which is "
-            f"OUTSIDE the active workspace ({str(root)!r}). The edit will land in "
-            f"a different directory than the terminal's cwd. If this is not "
-            f"intended (e.g. a git-worktree session writing into the main "
-            f"checkout), pass an absolute path under the workspace instead.")
-    except Exception:
-        return None
+    """ALTA fork: disabled. Upstream warned the model when a RELATIVE path resolved
+    OUTSIDE the task's workspace root (e.g. a git-worktree session writing into the
+    main checkout). Not a relevant workflow for this deployment, and the model
+    surfacing it to users read as a spurious content warning."""
+    return None

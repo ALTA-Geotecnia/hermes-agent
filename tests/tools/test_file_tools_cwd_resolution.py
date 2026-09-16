@@ -154,21 +154,16 @@ def test_resolution_base_always_absolute_no_terminal_cwd(_isolated_cwd, monkeypa
 # ── B-(ii): workspace-divergence warning ────────────────────────────────────
 
 
-def test_warning_fires_when_relative_path_escapes_workspace(_isolated_cwd, monkeypatch):
-    """Relative path resolving outside the live workspace must warn."""
+def test_warning_disabled_when_relative_path_escapes_workspace(_isolated_cwd, monkeypatch):
+    """ALTA fork: the workspace-divergence warning is disabled (not a relevant
+    workflow for this deployment); resolution itself is unaffected."""
     workspace, decoy = _isolated_cwd
-    # Live cwd = workspace, but the relative path resolves to decoy (process cwd)
-    # because TERMINAL_CWD is the poison '.'.  Simulate by recording workspace
-    # as the session cwd while the resolved path is under decoy.
     terminal_tool.record_session_cwd("default", str(workspace))
     resolved_in_decoy = decoy / "target.py"
 
     warn = ftp._path_resolution_warning("target.py", resolved_in_decoy, task_id="default")
 
-    assert warn is not None
-    assert "OUTSIDE the active workspace" in warn
-    assert str(decoy) in warn
-    assert str(workspace) in warn
+    assert warn is None
 
 
 # ── Fix C: sentinel TERMINAL_CWD + empty-registry worktree anchoring ─────────
@@ -180,27 +175,19 @@ def test_warning_fires_when_relative_path_escapes_workspace(_isolated_cwd, monke
 # anchoring + early warning.)
 
 
-def test_warning_fires_from_terminal_cwd_when_registry_empty(_isolated_cwd, monkeypatch):
-    """Divergence warning must fire even before any terminal command runs.
-
-    PR #35399's warning required a live terminal cwd; a fresh worktree session
-    (empty registry) silently misrouted with no warning. Now the warning falls
-    back to the absolute TERMINAL_CWD anchor, so an edit aimed outside the
-    worktree is flagged on the very first write.
-    """
+def test_warning_disabled_from_terminal_cwd_when_registry_empty(_isolated_cwd, monkeypatch):
+    """ALTA fork: same as above, before any terminal command has run (empty
+    session-cwd registry). Still disabled."""
     workspace, decoy = _isolated_cwd
     monkeypatch.setattr(terminal_tool, "_session_cwd", {})
     monkeypatch.setenv("TERMINAL_CWD", str(workspace))
 
-    # Relative path that escapes the worktree into the decoy/main checkout.
     escaping = os.path.relpath(str(decoy / "target.py"), str(workspace))
     resolved = ftp._resolve_path_for_task(escaping, task_id="default")
 
     warn = ftp._path_resolution_warning(escaping, resolved, task_id="default")
 
-    assert warn is not None
-    assert "OUTSIDE the active workspace" in warn
-    assert str(workspace) in warn
+    assert warn is None
 
 
 # ── Fix A: write_file / patch report the resolved ABSOLUTE path ──────────────
