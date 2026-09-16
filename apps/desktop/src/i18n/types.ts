@@ -3748,7 +3748,13 @@ export interface Translations {
     cwdChangeFailed: string
     cwdStagedTitle: string
     cwdStagedMessage: string
+    modelSwitchConfirmBody: string
+    modelSwitchConfirmLabel: string
+    modelSwitchConfirmTitle: (model: string) => string
+    modelSwitchConfirmTitleFallback: string
     modelSwitchFailed: string
+    modelSwitchKeepLabel: string
+    modelSwitchStaleNotice: string
     hydrationSyncing: (profile: string) => string
     sessionExported: string
     sessionExportFailed: string
