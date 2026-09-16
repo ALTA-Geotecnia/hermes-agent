@@ -38,6 +38,11 @@ export interface ChatBarState {
 
 export interface ChatBarProps {
   busy: boolean
+  /** ALTA fork: true for a fresh, empty conversation — floats the composer to
+   *  the vertical center of the pane (with its own heading above it) instead
+   *  of docking it to the bottom, matching Claude Desktop's new-chat layout.
+   *  Also stacks the model/reasoning controls below the input row. */
+  centered?: boolean
   disabled: boolean
   focusKey?: string | null
   maxRecordingSeconds?: number

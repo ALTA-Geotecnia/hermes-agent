@@ -763,7 +763,10 @@ const ChatViewContent = memo(function ChatViewContent({
             clampToComposer={showChatBar}
             cwd={currentCwd}
             gateway={gateway}
-            intro={showIntro ? { personality: introPersonality, seed: introSeed } : undefined}
+            // ALTA fork: with a composer on screen, ChatBar draws the fresh-
+            // conversation heading itself (centered with the input box); this
+            // static fallback only covers the rare case with no composer at all.
+            intro={showIntro && !showChatBar ? { personality: introPersonality, seed: introSeed } : undefined}
             loading={threadLoading}
             onBranchInNewChat={onBranchInNewChat}
             onCancel={haltRun}
@@ -816,6 +819,7 @@ const ChatViewContent = memo(function ChatViewContent({
             <Suspense fallback={<ChatBarFallback />}>
               <ChatBar
                 busy={busy}
+                centered={showIntro}
                 cwd={currentCwd}
                 disabled={!gatewayOpen}
                 focusKey={activeSessionId}

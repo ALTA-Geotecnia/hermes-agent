@@ -1704,6 +1704,16 @@ body.guest-pointer-lock :is(webview, iframe) {
   text-align: center;
 }
 
+/* ALTA fork: the centered composer renders its own Intro heading directly
+   above the composer surface (see ChatBar) — the `--composer-measured-height`
+   reserve above is for the OTHER copy of this component, the static fallback
+   inside the thread when there's a bottom-docked (or no) composer. Without
+   this override the heading picks up that padding a second time here and
+   opens a large gap before the input box. */
+[data-slot='composer-dock'] > [data-slot='aui_intro'] {
+  padding-bottom: 0;
+}
+
 [data-slot='aui_intro'] > div {
   max-width: var(--composer-width);
 }

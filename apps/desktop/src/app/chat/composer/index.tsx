@@ -5,6 +5,7 @@ import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useCallback, u
 import { useTourMarker } from '@/app/chat/tour-marker'
 import { useHudComposerDrag } from '@/app/hud/composer-drag'
 import { composerFill, composerFloatingStrip, composerSurfaceGlass } from '@/components/chat/composer-dock'
+import { Intro } from '@/components/chat/intro'
 import { $chatOnboardingSolo, $chatOnboardingThreadIds } from '@/components/onboarding-chat/assembly'
 import { OnboardingSkip } from '@/components/onboarding-chat/skip'
 import { OnboardingStart } from '@/components/onboarding-chat/start'
@@ -26,7 +27,7 @@ import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/st
 import { $hudMode } from '@/store/hud'
 import { sessionBlockingPrompt } from '@/store/prompts'
 import { toggleReview } from '@/store/review'
-import { $gatewayState } from '@/store/session'
+import { $gatewayState, $introPersonality, $introSeed } from '@/store/session'
 import { $botChatSessionIds, $sessionStates, $sessionTiles, isBotChatSession } from '@/store/session-states'
 import { $threadScrolledUpBySession } from '@/store/thread-scroll'
 import { $autoSpeakReplies } from '@/store/voice-prefs'
@@ -100,6 +101,7 @@ import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
 
 export function ChatBar({
   busy,
+  centered = false,
   cwd,
   disabled,
   focusKey,
@@ -360,13 +362,20 @@ export function ChatBar({
     return onCancel()
   }, [activeQueueSessionKeyRef, onCancel])
 
-  const { compactPill, foldVoice, minimal, stacked } = useComposerMetrics({
+  const { compactPill, foldVoice, minimal, stacked: metricsStacked } = useComposerMetrics({
     composerDockRef,
     composerRef,
     composerSurfaceRef,
     editorRef,
     poppedOut
   })
+
+  // ALTA fork: a centered (fresh-conversation) composer always shows the
+  // model/reasoning controls below the input row, Claude-Desktop-style,
+  // regardless of measured width.
+  const stacked = metricsStacked || centered
+  const introPersonality = useStore($introPersonality)
+  const introSeed = useStore($introSeed)
 
   const hasComposerPayload = hasText || attachments.length > 0
   const canSubmit = busy || hasComposerPayload
@@ -1235,7 +1244,11 @@ export function ChatBar({
         <div
           className={cn(
             'z-30 flex flex-col',
-            poppedOut ? 'fixed max-w-[calc(100vw-1.5rem)]' : 'absolute bottom-0 left-1/2 max-w-full -translate-x-1/2'
+            poppedOut
+              ? 'fixed max-w-[calc(100vw-1.5rem)]'
+              : centered
+                ? 'absolute left-1/2 top-1/2 max-w-full -translate-x-1/2 -translate-y-1/2'
+                : 'absolute bottom-0 left-1/2 max-w-full -translate-x-1/2'
           )}
           data-popped-out={poppedOut ? '' : undefined}
           data-slot="composer-dock"
@@ -1255,6 +1268,11 @@ export function ChatBar({
               : undefined
           }
         >
+          {/* ALTA fork: a fresh conversation's heading rides inside the dock,
+              directly above the surface, so translate(-50%) centers the pair
+              as one block — the thread behind it stays empty either way, so
+              nothing needs to know a heading is even here. */}
+          {centered && <Intro personality={introPersonality} seed={introSeed} />}
           {/* Aligned to the composer SURFACE, which sits inside the composer's
               5px transparent grab margin — so both strips carry the same inset
               and share one left edge with it. */}
@@ -1301,7 +1319,8 @@ export function ChatBar({
           />
           <ComposerPrimitive.Root
             className={cn(
-              'group/composer relative w-full overflow-visible rounded-2xl',
+              'group/composer relative w-full overflow-visible',
+              centered ? 'rounded-3xl' : 'rounded-2xl',
               poppedOut && 'bg-transparent',
               dragging && 'cursor-grabbing select-none touch-none',
               // Native Wayland HUD: setBounds cannot position a top-level
@@ -1388,8 +1407,11 @@ export function ChatBar({
                   aria-hidden
                   className={cn(
                     'pointer-events-none absolute inset-0 -z-10 rounded-[inherit]',
-                    composerFill,
-                    composerSurfaceGlass
+                    // ALTA fork: the centered new-chat composer gets a flat,
+                    // slightly gray fill (Claude-Desktop-style) instead of the
+                    // docked composer's translucent glass-over-thread blend —
+                    // there's no thread content behind it to blend with here.
+                    centered ? 'bg-muted/70' : cn(composerFill, composerSurfaceGlass)
                   )}
                 />
                 {!guidedChat && (
