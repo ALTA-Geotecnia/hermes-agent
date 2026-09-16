@@ -238,9 +238,12 @@ DEFAULT_CONFIG = {
         # provider or get a last-chance text fallback); "text" = always pre-analyze with
         # vision_analyze and prepend the description. vision_analyze stays a tool regardless.
         "image_input_mode": "auto",
-        # ALTA fork: browser automation (agent-browser/Chromium + credential vault) is opt-in,
-        # not a default corporate-deployment capability. Re-enable per profile via Tools settings.
-        "disabled_toolsets": ["browser"],
+        # ALTA fork: opt-in only, not default corporate-deployment capabilities. Re-enable per
+        # profile via Tools settings. browser: agent-browser/Chromium automation + credential
+        # vault. tts: text-to-speech. image_gen: image generation. computer_use: OS-level
+        # mouse/keyboard/screen control via cua-driver (broader surface than browser — controls
+        # any app on the desktop, not a sandboxed browser).
+        "disabled_toolsets": ["browser", "tts", "image_gen", "computer_use"],
         # Model name (any reasonable spelling) -> effort level; overrides agent.reasoning_effort
         # when the current model matches. Edit in config.yaml (no CLI support: dots in keys).
         "reasoning_overrides": {},
