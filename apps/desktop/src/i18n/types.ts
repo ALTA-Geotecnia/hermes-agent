@@ -1193,6 +1193,7 @@ export interface Translations {
       notInCatalog: string
       moaTitle: string
       moaPreset: string
+      moaDescription: string
       moaAggregator: string
       moaAggregatorBilled: string
       moaReferenceHint: string
