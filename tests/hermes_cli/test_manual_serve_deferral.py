@@ -91,3 +91,23 @@ def test_historical_manual_obligation_does_not_block_healthy_gateway(monkeypatch
     assert ("serve [work] pid 900" in warning) is (alive is not False)
     assert "hermes gateway restart" not in warning
     assert json.loads((root / "latest.json").read_text()) == receipt
+
+
+@pytest.mark.parametrize("manual_first", [True, False])
+@pytest.mark.parametrize("unsupported", [{"kind": "serve", "supervisor": "desktop"}, {"kind": "gateway", "profile": "unknown"}, None])
+def test_historical_retention_is_independent_of_plan_order(monkeypatch, capsys, manual_first, unsupported):
+    manual = asdict(RuntimeRecord(kind="serve", profile="work", pid=900, supervisor="manual-serve", restart_via="respawn-argv", detail={"create_time": 1000.0}))
+    rows = [manual, unsupported] if manual_first else [unsupported, manual]
+    receipt = {"outcome": "partial", "plan": {"runtimes": [{"kind": "gateway", "profile": "default"}, *rows]}, "fleet": [{"profile": "default", "state": "current", "code_sha": "new"}]}
+    root = get_hermes_home() / "logs" / "update_receipts"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "latest.json").write_text(json.dumps(receipt))
+    monkeypatch.setattr(process_identity, "_pid_alive_matches", lambda *a: True)
+    monkeypatch.setattr("hermes_cli.update_cmd._current_checkout_sha", lambda: "new")
+    assert fleet._receipt_owed_gateways() is None
+    assert list((get_hermes_home() / "serve_restart_pending").glob("*.json"))
+    update_receipt.begin_update_receipt()
+    update_receipt.finalize_update_receipt("success", fleet=[])
+    fleet._warn_pending_fleet_restart_on_startup()
+    assert "serve [work] pid 900" in capsys.readouterr().err
+

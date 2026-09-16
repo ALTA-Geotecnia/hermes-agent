@@ -159,9 +159,11 @@ def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
     entries: list[tuple[object, str | None]] = [(entry, None) for entry in plan.get("runtimes") or []]
     entries.extend((entry, "gateway") for entry in receipt.get("fleet") or [])
     owed: set[tuple[str, str]] = set()
+    unverified = False
     for entry, default_kind in entries:
         if not isinstance(entry, dict):
-            return None
+            unverified = True
+            continue
         kind = entry.get("kind", default_kind)
         profile = entry.get("profile")
         if kind in ("serve", "dashboard"):
@@ -169,9 +171,10 @@ def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
             if defer_manual_serve(entry):
                 continue
         if kind != "gateway" or not profile or profile == "unknown":
-            return None
+            unverified = True
+            continue
         owed.add((kind, profile))
-    return owed
+    return None if unverified else owed
 
 
 def _live_fleet_covers_receipt(expected_sha: str | None) -> bool:
