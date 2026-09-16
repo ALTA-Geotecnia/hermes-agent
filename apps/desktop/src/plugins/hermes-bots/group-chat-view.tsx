@@ -702,7 +702,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
   const memberDescriptors = () =>
     members.map(b => ({
       ...b,
-      title: (b.remoteSource ? '' : allMeta[b.name]?.title) || b.title || ''
+      title: botRosterMeta(b, allMeta)?.title || b.title || ''
     }))
 
   // Activity disclosure: quiet, collapsed by default. The collapsed row shows
