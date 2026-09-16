@@ -85,11 +85,13 @@ def test_historical_manual_obligation_does_not_block_healthy_gateway(monkeypatch
     monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda **k: [{"profile": "default", "state": "current", "code_sha": "new"}] if gateway_present else [])
     if marker:
         fleet._write_fleet_restart_pending_marker(expected_sha="new")
-    assert fleet._pending_fleet_restart_needed() is False
+    # A separate legacy marker has no inventory proving that an empty fleet is healthy.
+    pending = marker and not gateway_present
+    assert fleet._pending_fleet_restart_needed() is pending
     fleet._warn_pending_fleet_restart_on_startup()
     warning = capsys.readouterr().err
     assert ("serve [work] pid 900" in warning) is (alive is not False)
-    assert "hermes gateway restart" not in warning
+    assert ("hermes gateway restart" in warning) is pending
     assert json.loads((root / "latest.json").read_text()) == receipt
 
 
@@ -106,11 +108,11 @@ def test_stamped_manual_only_history_has_no_gateway_obligation(monkeypatch, caps
     monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda **k: [])
     if marker:
         fleet._write_fleet_restart_pending_marker(expected_sha="new")
-    assert not fleet._pending_fleet_restart_needed()
+    assert fleet._pending_fleet_restart_needed() is marker
     fleet._warn_pending_fleet_restart_on_startup()
     warning = capsys.readouterr().err
     assert "serve [work] pid 900" in warning
-    assert "hermes gateway restart" not in warning
+    assert ("hermes gateway restart" in warning) is marker
 
 
 @pytest.mark.parametrize("manual_first", [True, False])
@@ -124,7 +126,9 @@ def test_historical_retention_is_independent_of_plan_order(monkeypatch, capsys, 
     (root / "latest.json").write_text(json.dumps(receipt))
     monkeypatch.setattr(process_identity, "_pid_alive_matches", lambda *a: True)
     monkeypatch.setattr("hermes_cli.update_cmd._current_checkout_sha", lambda: "new")
-    assert fleet._receipt_owed_gateways() is None
+    from hermes_cli.update_serve_obligations import retain_receipt_manual_serves
+    pending_manual = retain_receipt_manual_serves(receipt)
+    assert fleet._receipt_owed_gateways(receipt, pending_manual) is None
     assert list((get_hermes_home() / "serve_restart_pending").glob("*.json"))
     update_receipt.begin_update_receipt()
     update_receipt.finalize_update_receipt("success", fleet=[])

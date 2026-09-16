@@ -67,13 +67,15 @@ def retain_receipt_manual_serves(receipt: dict) -> list[dict]:
     return pending
 
 
-def warn_pending_manual_serves(*, startup: bool = False) -> None:
-    """Keep reminders until the recorded incarnation is provably gone; never restart it."""
+def warn_pending_manual_serves(*, startup: bool = False, pending_manual: list[dict] | None = None) -> None:
+    """Warn about manual debt independently of gateway evidence; optionally reuse a snapshot's failed transfers."""
     from hermes_cli.process_identity import _pid_alive_matches
     from hermes_cli.update_receipt import read_latest_receipt
 
     stream = sys.stderr if startup else sys.stdout
-    for row in retain_receipt_manual_serves(read_latest_receipt() or {}):
+    if pending_manual is None:
+        pending_manual = retain_receipt_manual_serves(read_latest_receipt() or {})
+    for row in pending_manual:
         print(f"  ⚠ {row['kind']} [{row.get('profile', 'unknown')}] pid {row.get('pid', 'unknown')}: manual restart reminder could not be saved; restart remains pending in the update receipt.", file=stream)
         print("    Ask its owner to relaunch `hermes serve` / `hermes dashboard`; check reminder storage permissions and free space.", file=stream)
     directory = get_hermes_home() / "serve_restart_pending"

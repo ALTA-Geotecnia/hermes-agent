@@ -104,7 +104,7 @@ def _receipt_looks_unfinished(receipt: dict) -> bool:
     return bool(receipt.get("stop_reason")) and not succeeded
 
 
-def _receipt_reports_stale_runtime(expected_sha: str | None = None) -> bool:
+def _receipt_reports_stale_runtime(receipt: dict, expected_sha: str | None = None) -> bool:
     """True when ``update_receipts/latest.json`` records a runtime SHA skew.
 
     Prefer the post-restart ``fleet`` matrix. ``plan.runtimes[].code_sha`` is captured
@@ -114,11 +114,6 @@ def _receipt_reports_stale_runtime(expected_sha: str | None = None) -> bool:
     See #95294.
     """
     from hermes_cli.update_cmd import _current_checkout_sha
-    try:
-        from hermes_cli.update_receipt import read_latest_receipt
-        receipt = read_latest_receipt()
-    except Exception:
-        receipt = None
     if not isinstance(receipt, dict):
         return False
     expected_sha = expected_sha or _current_checkout_sha()
@@ -147,14 +142,11 @@ def _receipt_reports_stale_runtime(expected_sha: str | None = None) -> bool:
     )
 
 
-def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
-    """``(kind, profile)`` identities ``latest.json`` owes a current successor.
+def _receipt_owed_gateways(receipt: dict, pending_manual: list[dict]) -> set[tuple[str, str]] | None:
+    """Pure coverage classification after manual retention of this receipt snapshot.
 
-    Empty when the receipt records no gateways; ``None`` when a runtime cannot be verified or transferred to a durable manual-serve reminder. Manual-serve obligations are persisted separately before a gateway-only probe may discharge the fleet marker.
+    Empty means this receipt owes no gateways, not that an independent marker owes none. Unknown identities and failed manual transfers make coverage unverified.
     """
-    from hermes_cli.update_receipt import read_latest_receipt
-
-    receipt = read_latest_receipt() or {}
     plan = receipt.get("plan") or {}
     entries: list[tuple[object, str | None]] = [(entry, None) for entry in plan.get("runtimes") or []]
     entries.extend((entry, None) for entry in receipt.get("pending_manual_serves") or [])
@@ -167,10 +159,8 @@ def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
             continue
         kind = entry.get("kind", default_kind)
         profile = entry.get("profile")
-        if kind in ("serve", "dashboard"):
-            from hermes_cli.update_serve_obligations import defer_manual_serve
-            if defer_manual_serve(entry):
-                continue
+        if kind in ("serve", "dashboard") and entry.get("supervisor") == "manual-serve" and entry not in pending_manual:
+            continue
         if kind != "gateway" or not profile or profile == "unknown":
             unverified = True
             continue
@@ -178,7 +168,7 @@ def _receipt_owed_gateways() -> set[tuple[str, str]] | None:
     return None if unverified else owed
 
 
-def _live_fleet_covers_receipt(expected_sha: str | None) -> bool:
+def _live_fleet_covers_receipt(expected_sha: str | None, receipt: dict, owed: set[tuple[str, str]] | None) -> bool:
     """Require current successors for every recorded runtime, not just any live row.
 
     A PID changes on restart; the stable identity is (runtime kind, profile).
@@ -190,12 +180,10 @@ def _live_fleet_covers_receipt(expected_sha: str | None) -> bool:
     from hermes_cli.update_receipt import collect_fleet_versions
 
     try:
-        owed = _receipt_owed_gateways()
         if owed is None:
             return False
         if not owed:
-            from hermes_cli.update_receipt import read_latest_receipt
-            return bool(((read_latest_receipt() or {}).get("plan") or {}).get("runtimes"))
+            return bool((receipt.get("plan") or {}).get("runtimes"))
         fleet = collect_fleet_versions()
         if not fleet or any(
             row.get("state") != "current" or row.get("code_sha") != expected_sha
@@ -217,30 +205,14 @@ def _read_fleet_marker_expected_sha() -> str:
     return ""
 
 
-def _marker_only_restart_obsolete() -> bool:
-    """True when the pending marker is a leftover: the fleet already runs the expected code.
+def _marker_only_restart_obsolete(owed: set[tuple[str, str]] | None) -> bool:
+    """Discharge a legacy marker after an externally completed gateway restart.
 
-    A supervisor-level restart (``systemctl --user restart``, launchctl, ops scripts) never
-    goes through this module's clear path, so the marker survives a restart that DID bring
-    every live gateway to the pulled code — and every later CLI call then prints the
-    interrupted-update warning forever (false positive).
+    Require a nonempty snapshot of current, known-profile gateways at the marker's expected SHA, no checkout movement, and coverage of every receipt-owed gateway. Failed probes, stale/down/unknown rows and missing target SHAs retain the marker.
 
-    The marker is not an *unknown* obligation: it records its own ``expected_sha``, so it can
-    be checked against the live fleet directly — no receipt required. Hold it to the same
-    evidence bar ``_live_fleet_covers_receipt`` applies to one: at least one row, and every
-    row a ``current`` gateway under a known profile whose ``code_sha`` equals that
-    ``expected_sha``, with the checkout HEAD not moved past the marker.
+    Unlike receipt-only settlement, an empty live fleet never suffices: stopped gateways can disappear from startup discovery. Even a same-SHA manual-only receipt cannot establish ownership of this marker.
 
-    Keep the marker on stale/down rows, on an all-``unknown`` fleet (pre-code-identity
-    gateways cannot prove currency — same conservatism as the silent-failure class
-    #88848/#74973), on a marker with no ``expected_sha``, when a newer pull moved the
-    checkout, and when the probe fails or answers empty.
-
-    A gateway the restart phase stopped and never brought back yields NO row at startup
-    (no ``pre_restart_pids`` → no ``down`` classification), so rows alone cannot prove the
-    whole fleet is back. When ``latest.json`` names the gateways the update owed, every one
-    of them must also be covered by a current row; the rows-only rule applies only when the
-    receipt names none.
+    This preserves the legacy nonempty reconciliation policy, not a complete inventory guarantee. An unrelated older receipt can omit gateways owed by a later update; stronger guarantees require a marker-owned inventory.
     """
     expected_sha = _read_fleet_marker_expected_sha()
     if not expected_sha:
@@ -249,15 +221,13 @@ def _marker_only_restart_obsolete() -> bool:
     if checkout_sha and checkout_sha != expected_sha:
         return False  # a newer pull moved HEAD; it owns a fresh obligation
     try:
-        from hermes_cli.update_receipt import collect_fleet_versions, read_latest_receipt
+        from hermes_cli.update_receipt import collect_fleet_versions
         fleet = collect_fleet_versions()
-        owed = _receipt_owed_gateways()
-        recorded_runtimes = ((read_latest_receipt() or {}).get("plan") or {}).get("runtimes")
     except Exception as exc:
         logger.debug("Fleet probe failed; keeping fleet-restart-pending marker: %s", exc)
         return False
-    if not fleet and (owed != set() or not recorded_runtimes):
-        return False  # Empty is conclusive only for a recorded, fully transferred manual-only plan.
+    if not fleet:
+        return False  # Absence cannot discharge a marker with no owning inventory.
     for row in fleet:
         if not isinstance(row, dict):
             return False
@@ -276,22 +246,27 @@ def _marker_only_restart_obsolete() -> bool:
     return True
 
 
-def _pending_fleet_restart_needed() -> bool:
+def _pending_fleet_restart_needed(*, receipt: dict | None = None, pending_manual: list[dict] | None = None) -> bool:
     """Reconcile old restart obligations against current, identity-matched gateways."""
     from hermes_cli.update_cmd import _current_checkout_sha
+    from hermes_cli.update_receipt import read_latest_receipt
+    from hermes_cli.update_serve_obligations import retain_receipt_manual_serves
 
-    with suppress(Exception):
-        _receipt_owed_gateways()
+    if receipt is None:
+        receipt = read_latest_receipt() or {}
+    if pending_manual is None:
+        pending_manual = retain_receipt_manual_serves(receipt)
+    owed = _receipt_owed_gateways(receipt, pending_manual)
     # The marker has no runtime inventory and may belong to a newer, killed update
     # than latest.json. An older receipt cannot discharge that unknown obligation.
     with suppress(OSError):
         if _fleet_restart_pending_marker_path().is_file():
-            if _marker_only_restart_obsolete():
+            if _marker_only_restart_obsolete(owed):
                 return False
             return True
-    if not _receipt_reports_stale_runtime():
+    if not _receipt_reports_stale_runtime(receipt):
         return False
-    return not _live_fleet_covers_receipt(_current_checkout_sha())
+    return not _live_fleet_covers_receipt(_current_checkout_sha(), receipt, owed)
 
 
 def _warn_pending_fleet_restart(*, startup: bool = False) -> None:
@@ -305,12 +280,18 @@ def _warn_pending_fleet_restart(*, startup: bool = False) -> None:
 
 def _warn_pending_fleet_restart_on_startup() -> None:
     """Cheap CLI-startup hint. Never restarts; never raises."""
+    from hermes_cli.update_receipt import read_latest_receipt
+    from hermes_cli.update_serve_obligations import retain_receipt_manual_serves, warn_pending_manual_serves
+
+    receipt = read_latest_receipt() or {}
+    pending_manual = None
     with suppress(Exception):
-        if _pending_fleet_restart_needed():
+        pending_manual = retain_receipt_manual_serves(receipt)
+    with suppress(Exception):
+        if _pending_fleet_restart_needed(receipt=receipt, pending_manual=pending_manual):
             _warn_pending_fleet_restart(startup=True)
     with suppress(Exception):
-        from hermes_cli.update_serve_obligations import warn_pending_manual_serves
-        warn_pending_manual_serves(startup=True)
+        warn_pending_manual_serves(startup=True, pending_manual=pending_manual)
 
 
 def _systemd_gateway_unit_listings(on_list_timeout=None):
