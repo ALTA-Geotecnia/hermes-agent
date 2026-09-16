@@ -238,7 +238,9 @@ DEFAULT_CONFIG = {
         # provider or get a last-chance text fallback); "text" = always pre-analyze with
         # vision_analyze and prepend the description. vision_analyze stays a tool regardless.
         "image_input_mode": "auto",
-        "disabled_toolsets": [],
+        # ALTA fork: browser automation (agent-browser/Chromium + credential vault) is opt-in,
+        # not a default corporate-deployment capability. Re-enable per profile via Tools settings.
+        "disabled_toolsets": ["browser"],
         # Model name (any reasonable spelling) -> effort level; overrides agent.reasoning_effort
         # when the current model matches. Edit in config.yaml (no CLI support: dots in keys).
         "reasoning_overrides": {},
