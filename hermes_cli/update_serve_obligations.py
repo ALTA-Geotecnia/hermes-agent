@@ -37,26 +37,45 @@ def defer_manual_serve(runtime: dict, *, require_alive: bool = False) -> bool:
         row = {"kind": runtime["kind"], "profile": runtime.get("profile", "unknown"), "pid": pid, "create_time": created}
         target = directory / f"{pid}-{float(created).hex()}.json"
         # One immutable file per incarnation avoids read/merge/write races between CLI startups.
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, delete=False) as handle:
-            temporary = Path(handle.name)
-            json.dump(row, handle)
-            handle.flush()
-            os.fsync(handle.fileno())
+        temporary = None
         try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, delete=False) as handle:
+                temporary = Path(handle.name)
+                json.dump(row, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary, target)
         finally:
-            temporary.unlink(missing_ok=True)
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         return True
     except (OSError, ValueError, TypeError) as exc:
         logger.debug("Could not preserve manual serve obligation: %s", exc)
         return False
 
 
+def retain_receipt_manual_serves(receipt: dict) -> list[dict]:
+    """Return transfers still owed so receipt rotation cannot discard failed writes."""
+    plan = receipt.get("plan") or {}
+    rows = list(plan.get("runtimes") or []) + list(receipt.get("pending_manual_serves") or [])
+    pending = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("kind") not in ("serve", "dashboard") or row.get("supervisor") != "manual-serve":
+            continue
+        if not defer_manual_serve(row) and row not in pending:
+            pending.append(row)
+    return pending
+
+
 def warn_pending_manual_serves(*, startup: bool = False) -> None:
     """Keep reminders until the recorded incarnation is provably gone; never restart it."""
     from hermes_cli.process_identity import _pid_alive_matches
+    from hermes_cli.update_receipt import read_latest_receipt
 
     stream = sys.stderr if startup else sys.stdout
+    for row in retain_receipt_manual_serves(read_latest_receipt() or {}):
+        print(f"  ⚠ {row['kind']} [{row.get('profile', 'unknown')}] pid {row.get('pid', 'unknown')}: manual restart reminder could not be saved; restart remains pending in the update receipt.", file=stream)
+        print("    Ask its owner to relaunch `hermes serve` / `hermes dashboard`; check reminder storage permissions and free space.", file=stream)
     directory = get_hermes_home() / "serve_restart_pending"
     for path in sorted(directory.glob("*.json")):
         try:

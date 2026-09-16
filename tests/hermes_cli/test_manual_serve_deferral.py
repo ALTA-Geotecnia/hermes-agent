@@ -111,3 +111,57 @@ def test_historical_retention_is_independent_of_plan_order(monkeypatch, capsys, 
     fleet._warn_pending_fleet_restart_on_startup()
     assert "serve [work] pid 900" in capsys.readouterr().err
 
+
+@pytest.mark.parametrize("failure", ["mkdir", "write", "replace"])
+@pytest.mark.parametrize("gateway_state", ["current", "stale"])
+def test_historical_retention_failure_warns_and_survives_rotation(monkeypatch, capsys, failure, gateway_state):
+    from pathlib import Path
+    from hermes_cli import update_serve_obligations as obligations
+
+    manual = asdict(RuntimeRecord(kind="serve", profile="work", pid=900, supervisor="manual-serve", restart_via="respawn-argv", detail={"create_time": 1000.0}))
+    receipt = {"outcome": "partial", "plan": {"runtimes": [manual]}, "fleet": [{"profile": "default", "state": gateway_state, "code_sha": "new"}]}
+    root = get_hermes_home() / "logs" / "update_receipts"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "latest.json").write_text(json.dumps(receipt))
+    monkeypatch.setattr(process_identity, "_pid_alive_matches", lambda *a: True)
+    monkeypatch.setattr("hermes_cli.update_cmd._current_checkout_sha", lambda: "new")
+    monkeypatch.setattr(update_receipt, "collect_fleet_versions", lambda **k: [{"profile": "default", "state": "current", "code_sha": "new"}])
+    directory = get_hermes_home() / "serve_restart_pending"
+
+    def fail(*args, **kwargs):
+        raise OSError("injected persistence failure")
+
+    with monkeypatch.context() as broken:
+        if failure == "mkdir":
+            original = Path.mkdir
+            def mkdir(path, *args, **kwargs):
+                if path == directory:
+                    fail()
+                return original(path, *args, **kwargs)
+            broken.setattr(Path, "mkdir", mkdir)
+        elif failure == "write":
+            broken.setattr(obligations.json, "dump", fail)
+        else:
+            broken.setattr(obligations.os, "replace", fail)
+        fleet._warn_pending_fleet_restart_on_startup()
+        warning = capsys.readouterr().err
+        assert "serve [work] pid 900" in warning
+        assert "could not be saved" in warning
+        assert json.loads((root / "latest.json").read_text()) == receipt
+        for _ in range(2):
+            update_receipt.begin_update_receipt()
+            assert update_receipt.finalize_update_receipt("success", fleet=[]) is not None
+            fleet._warn_pending_fleet_restart_on_startup()
+            assert "serve [work] pid 900" in capsys.readouterr().err
+    fleet._warn_pending_fleet_restart_on_startup()
+    warning = capsys.readouterr().err
+    assert "serve [work] pid 900" in warning
+    assert "could not be saved" not in warning
+    assert len(list(directory.iterdir())) == 1
+    update_receipt.begin_update_receipt()
+    update_receipt.finalize_update_receipt("success", fleet=[])
+    fleet._warn_pending_fleet_restart_on_startup()
+    assert "serve [work] pid 900" in capsys.readouterr().err
+    monkeypatch.setattr(process_identity, "_pid_alive_matches", lambda *a: False)
+    fleet._warn_pending_fleet_restart_on_startup()
+    assert "900" not in capsys.readouterr().err
