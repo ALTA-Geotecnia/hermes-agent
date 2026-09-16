@@ -393,7 +393,7 @@ import { createSshIsolatedKeepaliveRegistry } from './ssh-isolated-keepalive'
 import { createSshTeardownTracker } from './ssh-teardown'
 import { createStreamThrottle } from './stream-throttle'
 import { registerTerminalIpc } from './terminal-ipc'
-import { nativeOverlayWidth as computeNativeOverlayWidth, macTitleBarOverlayHeight } from './titlebar-overlay-width'
+import { nativeOverlayWidth as computeNativeOverlayWidth, titleBarOverlayOptions } from './titlebar-overlay-width'
 import {
   backgroundMaterialFor,
   defaultTranslucencyState,
@@ -439,6 +439,7 @@ import {
   registrySshScopeForWindowRoute,
   WindowConnectionRouteRegistry
 } from './window-connection-route'
+import { registerWindowControlIpc, windowControlState } from './window-controls'
 import { createWindowOpenHandler } from './window-open-policy'
 import { installWindowRendererLifecycle } from './window-renderer-lifecycle'
 import { createWindowRevealController } from './window-reveal'
@@ -446,6 +447,7 @@ import {
   bindGeometryPersistence,
   computeWindowOptions,
   debounce,
+  maximizedBoundsCorrection,
   sanitizeWindowState,
   MIN_HEIGHT as WINDOW_MIN_HEIGHT,
   MIN_WIDTH as WINDOW_MIN_WIDTH
@@ -1180,31 +1182,19 @@ function getWindowBackgroundColor() {
 // to GetFrameColor() on some Electron builds; rgba(1,0,0,0) is the escape hatch.
 const TITLEBAR_OVERLAY_COLOR = 'rgba(1, 0, 0, 0)'
 
+// WSLg returns false: the RDP host paints nothing for a frameless window and
+// Electron's own overlay drifts its hit-region under RAIL, so the renderer
+// paints its own min/max/close (wslg-window-controls.tsx) over the
+// hermes:window-control IPC channel. See titleBarOverlayOptions.
 function getTitleBarOverlayOptions() {
-  if (IS_MAC) {
-    // Tahoe (Darwin 25+) misplaces the traffic lights when the overlay has a
-    // nonzero height (electron#49183); 0 there keeps them at the configured
-    // inset. See macTitleBarOverlayHeight.
-    return { height: macTitleBarOverlayHeight({ darwinMajor: DARWIN_MAJOR, titlebarHeight: TITLEBAR_HEIGHT }) }
-  }
-
-  // WSLg paints WCO via the RDP host's own min/max/close, so requesting
-  // an Electron overlay there just leaves a dead gap. Plain Linux (KDE,
-  // GNOME) can use the native overlay — let it through.
-  if (!IS_WINDOWS && IS_WSL) {
-    return false
-  }
-
-  return {
+  return titleBarOverlayOptions({
+    platform: IS_MAC ? 'mac' : IS_WINDOWS ? 'windows' : IS_WSL ? 'wslg' : 'linux',
+    darwinMajor: DARWIN_MAJOR,
+    titlebarHeight: TITLEBAR_HEIGHT,
     color: TITLEBAR_OVERLAY_COLOR,
-    height: TITLEBAR_HEIGHT,
-    symbolColor:
-      rendererTitleBarTheme && isHexColor(rendererTitleBarTheme.foreground)
-        ? rendererTitleBarTheme.foreground
-        : nativeTheme.shouldUseDarkColors
-          ? '#f7f7f7'
-          : '#242424'
-  }
+    foreground: rendererTitleBarTheme && isHexColor(rendererTitleBarTheme.foreground) ? rendererTitleBarTheme.foreground : null,
+    dark: nativeTheme.shouldUseDarkColors
+  })
 }
 
 // Push refreshed overlay options to a live window after a theme/appearance
@@ -6637,7 +6627,8 @@ function getWindowState(win = mainWindow) {
     isVisible: Boolean(win?.isVisible?.()),
     nativeOverlayWidth: getNativeOverlayWidth(),
     windowButtonPosition: getWindowButtonPosition(win),
-    darwinMajor: IS_MAC ? DARWIN_MAJOR : 0
+    darwinMajor: IS_MAC ? DARWIN_MAJOR : 0,
+    ...windowControlState(win, !IS_WINDOWS && IS_WSL)
   }
 }
 
@@ -6957,6 +6948,27 @@ function sendOpenUpdatesRequested() {
 // Push titlebar/fullscreen chrome state to a window's renderer. Defaults to the
 // primary, but any full chat window (primary or a secondary "instance" peer)
 // passes itself so its own fullscreen toggle drives its own traffic-light inset.
+// WSLg's RAIL compositor can settle a frameless window's native maximize offset
+// from the display work area (desktop strip top/left, content clipped
+// bottom/right — reported on WSLg 1.0.65). Snap it back. No-op when the window
+// already fills the work area, so healthy compositors are never fought and it
+// cannot loop on setBounds.
+function correctWslgMaximizeGap(win = mainWindow) {
+  if (!IS_WSL || !win || win.isDestroyed() || !win.isMaximized?.()) {
+    return
+  }
+
+  try {
+    const correction = maximizedBoundsCorrection(win.getBounds(), screen.getDisplayMatching(win.getBounds())?.workArea)
+
+    if (correction) {
+      win.setBounds(correction)
+    }
+  } catch (error) {
+    rememberLog(`[wslg] maximize gap correction failed: ${error?.message || error}`)
+  }
+}
+
 function sendWindowStateChanged(nextIsFullscreen?: boolean, target = mainWindow) {
   if (!target || target.isDestroyed()) {
     return
@@ -14834,8 +14846,16 @@ function createWindow() {
   // Reopen where the user left off. close is the backstop, flushed
   // synchronously before the window is gone.
   bindGeometryPersistence(mainWindow, schedulePersistWindowState)
-  mainWindow.on('maximize', schedulePersistWindowState)
-  mainWindow.on('unmaximize', schedulePersistWindowState)
+  mainWindow.on('maximize', () => {
+    correctWslgMaximizeGap(mainWindow)
+    // Renderer-drawn WSLg controls swap the maximize/restore glyph off this.
+    sendWindowStateChanged()
+    schedulePersistWindowState()
+  })
+  mainWindow.on('unmaximize', () => {
+    sendWindowStateChanged()
+    schedulePersistWindowState()
+  })
   mainWindow.on('close', () => schedulePersistWindowState.flush())
 
   // the closed wrapper remains truthy, so clear only the window this callback owns.
@@ -15210,6 +15230,7 @@ ipcMain.handle('hermes:window:openInstance', async (event, options) => {
 
   return { ok: true }
 })
+registerWindowControlIpc(ipcMain, sender => BrowserWindow.fromWebContents(sender))
 ipcMain.handle('hermes:window:openBrowser', async (_event, tabId) => {
   if (typeof tabId !== 'string' || !tabId.trim()) {
     return { ok: false, error: 'invalid-tab-id' }
