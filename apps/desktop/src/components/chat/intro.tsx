@@ -4,6 +4,8 @@ import { capitalize, normalize } from '@/lib/text'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
 
+const assetPath = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
+
 type IntroCopy = {
   headline: string
   body: string
@@ -169,7 +171,7 @@ export function Intro({ personality, seed }: IntroProps) {
         <img
           alt={WORDMARK}
           className="mx-auto mb-3 h-14 w-auto object-contain sm:h-16"
-          src="/alta-ai-assistant.png"
+          src={assetPath('alta-ai-assistant.png')}
         />
 
         <p className="m-0 text-center leading-normal tracking-tight">{copy.body}</p>

@@ -122,7 +122,7 @@ export function ComposerControls({
               {compactModelPill ? null : <ReasoningPill disabled={disabled} model={state.model} />}
             </>
           )}
-          {voiceControls}
+          <span className="mr-1">{voiceControls}</span>
         </>
       )}
       {showQueueButton ? (
