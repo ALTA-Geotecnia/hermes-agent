@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { capitalize, normalize } from '@/lib/text'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
-import { Wordmark } from './wordmark'
 
 type IntroCopy = {
   headline: string
@@ -167,8 +166,11 @@ export function Intro({ personality, seed }: IntroProps) {
       data-slot="aui_intro"
     >
       <div className="w-full min-w-0">
-        <img alt="" className="mx-auto mb-3 h-10 w-auto object-contain sm:h-12" src="/alta-mark.png" />
-        <Wordmark className="mb-1" text={WORDMARK} />
+        <img
+          alt={WORDMARK}
+          className="mx-auto mb-3 h-14 w-auto object-contain sm:h-16"
+          src="/alta-ai-assistant.png"
+        />
 
         <p className="m-0 text-center leading-normal tracking-tight">{copy.body}</p>
       </div>

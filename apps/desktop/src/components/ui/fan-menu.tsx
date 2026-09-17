@@ -271,7 +271,7 @@ export function FanMenu({ direction = 'vertical', gap = 4, hint = true, hub, ite
         {hint ? (
           <Codicon
             className={cn(
-              'pointer-events-none absolute -top-px right-0 text-(--ui-text-quaternary) transition-opacity duration-100',
+              'pointer-events-none absolute top-1/2 -right-0.5 -translate-y-1/2 text-(--ui-text-quaternary) transition-opacity duration-100',
               open && 'opacity-0'
             )}
             name="chevron-up"
