@@ -24,24 +24,24 @@ const NEUTRAL_PERSONALITIES = new Set(['', 'default', 'none', 'neutral'])
 
 const FALLBACK_COPY: IntroCopy[] = [
   {
-    headline: 'What are we moving today?',
-    body: "Send a bug, branch, plan, or rough idea. I'll inspect the repo and turn it into the next concrete step."
+    headline: 'O que vamos mover hoje?',
+    body: 'Envie um bug, branch, plano ou ideia solta. Vou inspecionar o repositório e transformar isso no próximo passo concreto.'
   },
   {
-    headline: "What's on your mind?",
-    body: "Bring the code, question, or stuck part. I'll read the room before making changes."
+    headline: 'O que você tem em mente?',
+    body: 'Traga o código, a pergunta ou o ponto travado. Vou entender o contexto antes de mexer em qualquer coisa.'
   },
   {
-    headline: 'What should Hermes look at?',
-    body: "Send the task, failing path, or half-formed plan. I'll help turn it into action."
+    headline: 'O que devo olhar?',
+    body: 'Envie a tarefa, o caminho que está falhando ou um plano ainda incompleto. Vou ajudar a transformar isso em ação.'
   },
   {
-    headline: 'Where should we start?',
-    body: "Bring the problem, goal, or file. I'll inspect first and keep the next step concrete."
+    headline: 'Por onde devemos começar?',
+    body: 'Traga o problema, o objetivo ou o arquivo. Vou inspecionar primeiro e manter o próximo passo concreto.'
   },
   {
-    headline: 'What needs attention?',
-    body: "Send the context you have. I'll help sort it into a plan or a fix."
+    headline: 'O que precisa de atenção?',
+    body: 'Envie o contexto que você tem. Vou ajudar a organizar isso em um plano ou correção.'
   }
 ]
 
