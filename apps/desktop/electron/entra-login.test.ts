@@ -92,6 +92,10 @@ test('ENTRA_SCOPE requests offline_access so a refresh token comes back', () => 
   assert.match(ENTRA_SCOPE, /\boffline_access\b/)
 })
 
+test('ENTRA_SCOPE requests the exposed API scope so the access_token carries aud=ENTRA_CLIENT_ID (what oauth2-proxy checks for Bearer requests)', () => {
+  assert.match(ENTRA_SCOPE, new RegExp(`api://${ENTRA_CLIENT_ID}/intranet\\.access`))
+})
+
 // --- loopback callback parsing ---
 
 test('parseLoopbackCallback returns the code on a state match', () => {

@@ -37,8 +37,13 @@ export const ENTRA_TENANT_ID = 'eb0548a2-8962-4391-b1f7-9abcf798d345'
 export const ENTRA_CLIENT_ID = 'bda7505d-5d70-4370-b21c-98c0da93ecdd'
 
 // offline_access is required to get a refresh_token back so the app doesn't
-// force an interactive login every launch.
-export const ENTRA_SCOPE = 'openid profile email offline_access'
+// force an interactive login every launch. The api://<client-id>/intranet.access
+// scope (already exposed by this App Registration for the MindsHub/intranet
+// pattern) is what makes the returned access_token carry aud=ENTRA_CLIENT_ID,
+// which is what oauth2-proxy validates (OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS)
+// when the desktop backend calls the ALTA Hermes Server with an
+// Authorization: Bearer header instead of a browser session cookie.
+export const ENTRA_SCOPE = `openid profile email offline_access api://${ENTRA_CLIENT_ID}/intranet.access`
 
 /** The Microsoft identity platform v2.0 authorize endpoint for a tenant. */
 export function entraAuthorizeEndpoint(tenantId: string): string {

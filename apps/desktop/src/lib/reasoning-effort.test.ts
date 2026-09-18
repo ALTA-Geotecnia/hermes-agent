@@ -30,4 +30,9 @@ describe('reasoning-effort', () => {
     expect(resolveReasoningEffort('none')).toBe('')
     expect(resolveReasoningEffort('bogus')).toBe(DEFAULT_REASONING_EFFORT)
   })
+
+  it('clamps a value to the levels advertised by the selected model', () => {
+    expect(resolveReasoningEffort('medium', 'medium', ['low', 'high'])).toBe('low')
+    expect(resolveReasoningEffort('high', 'medium', ['low', 'high'])).toBe('high')
+  })
 })

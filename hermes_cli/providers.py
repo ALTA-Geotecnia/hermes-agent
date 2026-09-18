@@ -85,6 +85,12 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
     "ollama-cloud": HermesOverlay(base_url_override="https://ollama.com/v1", base_url_env_var="OLLAMA_BASE_URL"),
     # Azure Foundry serves OpenAI- and Anthropic-style endpoints; transport comes from model.api_mode.
     "azure-foundry": HermesOverlay(base_url_env_var="AZURE_FOUNDRY_BASE_URL"),
+    # ALTA Hermes Server: OpenAI-compatible relay, corporate desktop build only (HERMES_DISABLE_BYOK).
+    # Bearer credential is the Entra ID access token Electron already minted for the mandatory login
+    # gate (hermes_cli/entra_auth.py) — never a user-configured key, hence keyless=True. Model list
+    # comes from the server's own catalog (hermes_cli/model_catalog.py), never a static snapshot.
+    "alta": HermesOverlay(auth_type="alta_entra", base_url_override="https://geo-decision.com/intranet/hermes-server/api/v1",
+                          keyless=True),
     "bedrock": HermesOverlay(transport="bedrock_converse", auth_type="aws_sdk"),
     # Vertex is OAuth2 (service-account JSON / ADC), resolved by agent/vertex_adapter.py. Without an
     # overlay get_provider("vertex") is None and auxiliary_client._preserve_provider_with_base_url
@@ -148,6 +154,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "nebius-token-factory": "Nebius Token Factory", "tencent-tokenplan": "Tencent TokenPlan", "lmstudio": "LM Studio",
     "local": "Local endpoint", "bedrock": "AWS Bedrock", "vertex": "Google Vertex AI", "ollama-cloud": "Ollama Cloud",
     "xai-oauth": "xAI Grok OAuth (SuperGrok / Premium+)", "opencode-free": "OpenCode Free",
+    "alta": "ALTA",
 }
 
 

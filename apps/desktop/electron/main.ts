@@ -939,6 +939,11 @@ const SKIP_QUIT_CONFIRM = process.env.HERMES_DESKTOP_SKIP_QUIT_CONFIRM === '1'
 // (desktopBackendSpawnEnv) and the renderer (hermes:launch-flags).
 const GUEST_ONBOARDING = guestOnboardingEnabled()
 const SKIP_INTRO = skipIntroEnabled()
+// ALTA fork: this build never offers bring-your-own-key model providers —
+// only models from the ALTA server catalog. Stamped onto every backend spawn
+// (HERMES_DISABLE_BYOK) and the renderer (hermes:launch-flags), same pattern
+// as GUEST_ONBOARDING above.
+const DISABLE_BYOK = true
 
 const BOOT_FAKE_STEP_MS = (() => {
   const raw = Number.parseInt(String(process.env.HERMES_DESKTOP_BOOT_FAKE_STEP_MS || ''), 10)
@@ -8925,16 +8930,57 @@ async function cloudAgentSilentSignIn(dashboardUrl) {
 // this block is just the electron-coupled glue (safeStorage-backed storage,
 // wiring into app.whenReady()).
 //
-// Scope is UI-only: the local Hermes backend is loopback-bound and never
-// re-validates this token, which would be redundant defense-in-depth against
-// an attacker who cannot reach a loopback port anyway. The real security
+// The local Hermes backend is loopback-bound and never re-validates this
+// token for UI access — that would be redundant defense-in-depth against an
+// attacker who cannot reach a loopback port anyway. The real security
 // boundary against internet abuse is server-side, at ALTA's relay via
-// oauth2-proxy's aud/iss check — out of scope here (see cowork.yml in the
-// infra-server repo for the pattern already running for a sibling app).
+// oauth2-proxy's aud/iss check (OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS, see the
+// infra repo's oauth2-proxy alpha-config.yaml). Since that check exists, the
+// backend DOES forward this same access_token as `Authorization: Bearer` on
+// every outbound call to the ALTA Hermes Server — see
+// _writeEntraAccessTokenFile() below and hermes_cli/entra_auth.py on the
+// Python side. Scope is per-request Bearer auth only: the client must never
+// construct or send X-Auth-Request-Email/X-Auth-Request-User itself — those
+// are injected by oauth2-proxy after it validates the token, never by us.
 // ---------------------------------------------------------------------------
 
 function _entraSessionStorePath() {
   return path.join(app.getPath('userData'), 'entra-oauth-session.json')
+}
+
+// Where the current access token is handed to the Python backend (plain
+// JSON, not the safeStorage-encrypted blob _entraSessionStorePath() uses —
+// the backend process needs to read it on every outbound ALTA call and has
+// no access to Electron's safeStorage). Lives under HERMES_HOME, not
+// userData, so both processes agree on the path without extra IPC; the path
+// itself is handed to the backend via HERMES_ENTRA_ACCESS_TOKEN_FILE.
+function _entraAccessTokenFilePath() {
+  return path.join(HERMES_HOME, '.entra-access-token.json')
+}
+
+/**
+ * Refresh the file the backend reads before each outbound call to the ALTA
+ * Hermes Server. Called after every login/refresh (ensureEntraLogin() and
+ * the periodic refresh in _scheduleEntraTokenRefresh()) so a long-running
+ * session never serves a stale token — access tokens are short-lived
+ * (~60-90 min), unlike the UI login gate itself which only needs to be
+ * checked once at boot.
+ */
+function _writeEntraAccessTokenFile(session: EntraSession) {
+  try {
+    fs.mkdirSync(HERMES_HOME, { recursive: true })
+    fs.writeFileSync(
+      _entraAccessTokenFilePath(),
+      JSON.stringify({ accessToken: session.accessToken, expiresAt: session.expiresAt }),
+      { mode: 0o600 }
+    )
+  } catch (error) {
+    rememberLog(
+      `[entra-login] failed to write the access-token file the backend reads for ALTA calls: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+  }
 }
 
 // The electron-coupled half of the Entra session store: safeStorage
@@ -8958,12 +9004,18 @@ function _entraTokenStoreIo(): EntraTokenStoreIo {
 // before the gate runs and if it somehow fails without quitting the app.
 let _entraIdentity: EntraIdentity | null = null
 
+// The full current session (access/refresh tokens + expiry), kept so
+// _scheduleEntraTokenRefresh() can silently renew it in the background and
+// re-write the file the Python backend reads. null before the gate passes.
+let _entraSession: EntraSession | null = null
+
 /**
  * The signed-in ALTA user's identity (email/oid), once the Entra ID login
- * gate has passed. Exposed so a FUTURE ALTA-relay HTTP client can attach it
- * as a header for server-side usage tracking — see the follow-up beads issue
- * filed alongside this gate (depends on the ALTA server epic, alta-ai-9mv).
- * No relay client exists yet; this accessor is groundwork only.
+ * gate has passed. NOT used to build any outbound header — the server
+ * learns identity from the validated access_token itself (oauth2-proxy
+ * injects X-Auth-Request-Email/User from the token's claims once it accepts
+ * the Bearer JWT; the client must never construct those headers itself).
+ * This accessor is for UI display only (e.g. a "signed in as" label).
  */
 function getEntraIdentity(): EntraIdentity | null {
   return _entraIdentity
@@ -9060,6 +9112,8 @@ async function ensureEntraLogin(): Promise<boolean> {
   if (stored && !entraTokenNeedsRefresh(stored, nowSeconds)) {
     try {
       _entraIdentity = decodeIdTokenClaims(stored.idToken)
+      _entraSession = stored
+      _writeEntraAccessTokenFile(stored)
 
       return true
     } catch (error) {
@@ -9074,6 +9128,8 @@ async function ensureEntraLogin(): Promise<boolean> {
       const refreshed = await refreshEntraSession(stored, io)
 
       _entraIdentity = decodeIdTokenClaims(refreshed.idToken)
+      _entraSession = refreshed
+      _writeEntraAccessTokenFile(refreshed)
 
       return true
     } catch (error) {
@@ -9096,6 +9152,8 @@ async function ensureEntraLogin(): Promise<boolean> {
 
     persistEntraSession(session, io)
     _entraIdentity = identity
+    _entraSession = session
+    _writeEntraAccessTokenFile(session)
 
     return true
   } catch (error) {
@@ -9107,6 +9165,42 @@ async function ensureEntraLogin(): Promise<boolean> {
 
     return false
   }
+}
+
+// ensureEntraLogin() only proves the token is valid at BOOT. Access tokens
+// are short-lived (~60-90 min per Microsoft), so a desktop session left open
+// for hours needs this to keep _writeEntraAccessTokenFile()'s output current
+// for the backend's outbound ALTA calls. Checked every 5 min rather than
+// scheduled exactly at expiry — cheap, and tokenNeedsRefresh() already
+// treats "near expiry" as due, so a missed tick by a few minutes is harmless.
+const ENTRA_REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000
+
+function _scheduleEntraTokenRefresh() {
+  setInterval(() => {
+    if (!_entraSession) {
+      return
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000)
+
+    if (!entraTokenNeedsRefresh(_entraSession, nowSeconds)) {
+      return
+    }
+
+    refreshEntraSession(_entraSession, _entraTokenStoreIo())
+      .then(refreshed => {
+        _entraSession = refreshed
+        _entraIdentity = decodeIdTokenClaims(refreshed.idToken)
+        _writeEntraAccessTokenFile(refreshed)
+      })
+      .catch(error => {
+        rememberLog(
+          `[entra-login] background token refresh failed, previous token stays in the file until it expires: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      })
+  }, ENTRA_REFRESH_CHECK_INTERVAL_MS).unref()
 }
 
 // ---------------------------------------------------------------------------
@@ -12901,6 +12995,12 @@ async function runPoolBackendStart(profile, entry, opts: { forceLocal?: boolean;
           // Marks this dashboard backend as desktop-spawned so it runs the cron
           // scheduler tick loop (the gateway isn't running under the app).
           HERMES_DESKTOP: '1',
+          // ALTA fork: no direct API-key entry — only models from the server catalog.
+          HERMES_DISABLE_BYOK: DISABLE_BYOK ? '1' : '0',
+          // Path to the Entra access-token file _writeEntraAccessTokenFile() keeps
+          // current; the backend reads it fresh before each outbound call to the
+          // ALTA Hermes Server (model catalog, and eventually the chat relay).
+          HERMES_ENTRA_ACCESS_TOKEN_FILE: _entraAccessTokenFilePath(),
           // Exact parent identity lets the backend self-exit after an unclean
           // Desktop death without mistaking a reused PID for its owner. If the
           // optional marker probe fails, retain legacy PID-only tracking.
@@ -13370,6 +13470,12 @@ async function runHermesStart() {
             // Marks this dashboard backend as desktop-spawned so it runs the cron
             // scheduler tick loop (the gateway isn't running under the app).
             HERMES_DESKTOP: '1',
+            // ALTA fork: no direct API-key entry — only models from the server catalog.
+            HERMES_DISABLE_BYOK: DISABLE_BYOK ? '1' : '0',
+            // Path to the Entra access-token file _writeEntraAccessTokenFile() keeps
+            // current; the backend reads it fresh before each outbound call to the
+            // ALTA Hermes Server (model catalog, and eventually the chat relay).
+            HERMES_ENTRA_ACCESS_TOKEN_FILE: _entraAccessTokenFilePath(),
             // Exact parent identity lets the backend self-exit after an unclean
             // Desktop death without mistaking a reused PID for its owner. If the
             // optional marker probe fails, retain legacy PID-only tracking.
@@ -17542,7 +17648,8 @@ ipcMain.on('hermes:launch-flags', event => {
   event.returnValue = {
     localModels: process.argv.includes('--local') || process.platform === 'win32' || process.platform === 'darwin',
     guestOnboarding: GUEST_ONBOARDING,
-    skipIntro: SKIP_INTRO
+    skipIntro: SKIP_INTRO,
+    byokEnabled: !DISABLE_BYOK
   }
 })
 
@@ -18535,6 +18642,8 @@ app.whenReady().then(async () => {
 
     return
   }
+
+  _scheduleEntraTokenRefresh()
 
   // A hard crash can interrupt the in-memory restore loop after exact remote
   // serves were drained. The owner-only recovery journal survives that crash;

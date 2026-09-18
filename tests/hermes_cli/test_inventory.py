@@ -627,6 +627,63 @@ def test_build_models_payload_no_max_models_returns_full_list():
     assert len(kilo_row["models"]) == 100
 
 
+# ─── ALTA provider row (hermes-agent-pqy / hermes-agent-bxh) ───────────
+
+
+def test_alta_provider_row_maps_catalog_capabilities_to_reasoning_efforts():
+    """The ALTA server catalog declares its own per-model reasoning capabilities
+    (id, capabilities.reasoning, capabilities.reasoning_efforts,
+    capabilities.can_disable_reasoning) — build_models_payload must forward them
+    verbatim into the single injected "alta" row so the picker only offers the
+    effort levels the server actually accepts, instead of Hermes' full ladder."""
+    catalog = {
+        "providers": {
+            "alta": {
+                "metadata": {"display_name": "ALTA"},
+                "models": [
+                    {
+                        "id": "alta-glm",
+                        "name": "Alta Flash",
+                        "capabilities": {
+                            "reasoning": True,
+                            "reasoning_efforts": ["low", "medium", "high", "max"],
+                            "can_disable_reasoning": True,
+                        },
+                    },
+                    {
+                        "id": "alta-air",
+                        "name": "Alta Lite",
+                        "capabilities": {"reasoning": False},
+                    },
+                ],
+            }
+        }
+    }
+    ctx = _empty_ctx(provider="alta", model="alta-glm")
+
+    with patch("hermes_cli.web_routers._common.byok_disabled", return_value=True), patch(
+        "hermes_cli.model_catalog.get_catalog", return_value=catalog
+    ):
+        payload = build_models_payload(ctx)
+
+    assert [row["slug"] for row in payload["providers"]] == ["alta"]
+    alta_row = payload["providers"][0]
+    assert alta_row["model_labels"] == {"alta-glm": "Alta Flash", "alta-air": "Alta Lite"}
+    assert alta_row["capabilities"]["alta-glm"] == {
+        "fast": False,
+        "reasoning": True,
+        "reasoning_efforts": ["low", "medium", "high", "max"],
+        "can_disable_reasoning": True,
+    }
+    # A model the catalog declares non-reasoning must not carry stray effort levels.
+    assert alta_row["capabilities"]["alta-air"] == {
+        "fast": False,
+        "reasoning": False,
+        "reasoning_efforts": [],
+        "can_disable_reasoning": False,
+    }
+
+
 # ─── refresh flag (cache-bust) ─────────────────────────────────────────
 
 

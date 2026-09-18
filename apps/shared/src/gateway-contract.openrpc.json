@@ -15178,6 +15178,21 @@
             "title": "Reasoning",
             "type": "boolean"
           },
+          "reasoning_efforts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reasoning Efforts"
+          },
           "can_disable_reasoning": {
             "anyOf": [
               {
@@ -15266,6 +15281,21 @@
             },
             "title": "Models",
             "type": "array"
+          },
+          "model_labels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Labels"
           },
           "total_models": {
             "anyOf": [

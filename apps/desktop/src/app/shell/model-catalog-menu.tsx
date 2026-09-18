@@ -26,7 +26,7 @@ import { useI18n } from '@/i18n'
 import { isSubmitEnter } from '@/lib/ime'
 import { catalogProviderMatches, modelOptionsQueryKey, requestModelOptions } from '@/lib/model-options'
 import { displayModelName, modelDisplayParts } from '@/lib/model-status-label'
-import { reasoningEffortLabel } from '@/lib/reasoning-effort'
+import { reasoningEffortLabel, resolveReasoningEffort } from '@/lib/reasoning-effort'
 import { foldIncludes, normalize } from '@/lib/text'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
@@ -300,7 +300,9 @@ export function ModelCatalogMenu({
 
     controller.applyPreset(
       {
-        effort: (caps?.reasoning ?? true) ? (preset.effort ?? defaultEffort) : undefined,
+        effort: (caps?.reasoning ?? true)
+          ? resolveReasoningEffort(preset.effort ?? defaultEffort, defaultEffort, caps?.reasoning_efforts ?? undefined)
+          : undefined,
         fast: (caps?.fast ?? false) ? (preset.fast ?? false) : undefined
       },
       { model: family.id, provider: provider.slug }
@@ -491,7 +493,9 @@ export function ModelCatalogMenu({
                         : null
 
                     const isCurrent = activeId !== null
-                    const name = modelDisplayParts(family.id).name
+                    // Prefer the server's own "nome amigavel" (model_labels, e.g. the ALTA catalog's
+                    // admin-configured display names) over the generic id-to-title-case fallback.
+                    const name = group.provider.model_labels?.[family.id] ?? modelDisplayParts(family.id).name
                     const caps = group.provider.capabilities?.[family.id]
 
                     // Managed local model loading into memory right now:
@@ -589,6 +593,7 @@ export function ModelCatalogMenu({
                           }
                           provider={group.provider.slug}
                           reasoning={caps?.reasoning ?? true}
+                          reasoningEfforts={caps?.reasoning_efforts ?? undefined}
                         />
                       </DropdownMenuSub>
                     )

@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import sqlite3
 import time
 from typing import Any, Callable, Dict, Optional
@@ -70,6 +71,20 @@ def spawn_profile_action(
     with http_failure(log_msg, 500, prefix):
         proc = _spawn_hermes_action(_profile_cli_args(profile) + argv, name)
     return {"ok": True, "pid": proc.pid, "name": name}
+
+
+def byok_disabled() -> bool:
+    """True when this backend was spawned by a build that disables bring-your-own-key
+    model providers (``HERMES_DISABLE_BYOK=1`` — the ALTA corporate desktop build stamps
+    this on every backend it spawns; unset everywhere else, so CLI/TUI/upstream usage and
+    the existing test suite are unaffected)."""
+    return os.environ.get("HERMES_DISABLE_BYOK") == "1"
+
+
+BYOK_DISABLED_DETAIL = (
+    "Bring-your-own-key model providers are disabled in this build. "
+    "Pick a model from the ALTA server catalog instead."
+)
 
 
 def require(value: Optional[str], detail: str) -> str:

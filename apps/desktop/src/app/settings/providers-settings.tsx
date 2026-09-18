@@ -21,6 +21,7 @@ import { useI18n } from '@/i18n'
 import { Check, ChevronDown, ChevronRight, KeyRound, Loader2, Terminal, Trash2 } from '@/lib/icons'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
+import { $byokEnabled } from '@/store/byok-flag'
 import { confirm } from '@/store/confirm'
 import { $localModelsEnabled } from '@/store/local-models-flag'
 import { notify, notifyError } from '@/store/notifications'
@@ -463,9 +464,12 @@ export function ProvidersSettings({
   }
 
   const hasOauth = oauthProviders.length > 0
+  const byokEnabled = $byokEnabled.get()
   // The sidebar subnav owns the Accounts/API-keys split now; with no OAuth
   // providers there's nothing for the "Accounts" view to show, so fall to keys.
-  const showApiKeys = view === 'keys' || (!hasOauth && view !== 'custom-endpoints')
+  // ALTA build: BYOK is off, so that fallback would show a raw key-entry pane
+  // with nothing to configure — stay on the (empty) accounts view instead.
+  const showApiKeys = byokEnabled && (view === 'keys' || (!hasOauth && view !== 'custom-endpoints'))
 
   const keyGroups = buildProviderKeyGroups(vars)
 
@@ -520,7 +524,12 @@ export function ProvidersSettings({
   }
 
   if (view === 'custom-endpoints') {
-    return <CustomEndpointsSettings onConfigSaved={onConfigSaved} onMainModelChanged={onMainModelChanged} />
+    // Strict flag gate, mirroring the `local` view below: a stale
+    // ?pview=custom-endpoints deep link on the ALTA build falls back to
+    // accounts-shaped emptiness rather than a hidden BYOK feature.
+    return byokEnabled ? (
+      <CustomEndpointsSettings onConfigSaved={onConfigSaved} onMainModelChanged={onMainModelChanged} />
+    ) : null
   }
 
   if (view === 'local') {

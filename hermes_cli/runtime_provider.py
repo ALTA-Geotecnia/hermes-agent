@@ -32,7 +32,7 @@ from hermes_cli.auth import (  # resolve_external_process_provider_credentials i
 from hermes_cli import config as _config_mod
 from hermes_cli import models as _models  # attribute access keeps ``hermes_cli.models.<name>`` patches effective
 from hermes_constants import OPENROUTER_BASE_URL
-from hermes_cli.providers import determine_api_mode, is_actual_route, is_official_openai_host, nous_api_mode
+from hermes_cli.providers import HERMES_OVERLAYS, determine_api_mode, is_actual_route, is_official_openai_host, nous_api_mode
 from utils import base_url_host_matches, base_url_hostname, env_int
 
 
@@ -785,6 +785,21 @@ def _resolve_vertex_runtime(requested_provider: str) -> Dict[str, Any]:
     return _runtime("vertex", "chat_completions", base_url.rstrip("/"), token, source="vertex-oauth", requested_provider=requested_provider)
 
 
+def _resolve_alta_runtime(requested_provider: str) -> Dict[str, Any]:
+    """ALTA Hermes Server relay (OpenAI-compatible, corporate desktop build only). The Electron
+    process owns Entra ID login/silent-refresh entirely (apps/desktop/electron/main.ts) and hands
+    the current access token to this backend via HERMES_ENTRA_ACCESS_TOKEN_FILE; read fresh here
+    on every resolve (once per agent turn), same "re-mint per resolve, not per HTTP call" contract
+    as Vertex above — a session outliving the token's ~70-90min lifetime just picks up the renewed
+    value on its next turn."""
+    from hermes_cli.entra_auth import get_entra_access_token
+    token = get_entra_access_token()
+    if not token:
+        raise AuthError("ALTA server login required or expired. Sign in again in the Hermes desktop app.")
+    base_url = (HERMES_OVERLAYS["alta"].base_url_override or "").rstrip("/")
+    return _runtime("alta", "chat_completions", base_url, token, source="alta-entra", requested_provider=requested_provider)
+
+
 def _resolve_requested_shortcuts(requested_provider, explicit_api_key, explicit_base_url, target_model) -> Optional[Dict[str, Any]]:
     """Providers decided on the REQUESTED name alone, before custom / pool / generic paths."""
     if requested_provider == "moa":
@@ -805,6 +820,8 @@ def _resolve_requested_shortcuts(requested_provider, explicit_api_key, explicit_
                                               target_model=target_model)
     if requested_provider in _VERTEX_NAMES:
         return _resolve_vertex_runtime(requested_provider)
+    if requested_provider == "alta":
+        return _resolve_alta_runtime(requested_provider)
     return None
 
 

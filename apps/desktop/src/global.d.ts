@@ -363,6 +363,11 @@ declare global {
       /** Launch flag: skip the first-run film (HERMES_SKIP_INTRO=1 or
        *  --skip-intro) so a fresh HERMES_HOME lands on the guided chat. */
       skipIntro?: boolean
+      /** Launch flag: bring-your-own-key model providers are allowed. Present
+       *  and `false` only on the ALTA corporate build (HERMES_DISABLE_BYOK=1
+       *  stamped onto the spawned backend too) — absent everywhere else, so
+       *  upstream/OSS builds keep every BYOK surface. */
+      byokEnabled?: boolean
       setTranslucency?: (payload: TranslucencyState) => void
       setKeepAwake?: (on: boolean) => void
       setDisableF12?: (blocked: boolean) => void

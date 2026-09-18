@@ -23,12 +23,11 @@ from utils import atomic_json_write
 logger = logging.getLogger(__name__)
 
 DEFAULT_CATALOG_URL = (
-    "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json")
-# The Docusaurus site sits behind Vercel, which occasionally 403s non-browser clients (bot
-# challenge); the raw GitHub copy is the same manifest and is not bot-gated.
-DEFAULT_CATALOG_FALLBACK_URLS: tuple[str, ...] = (
-    "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/static/api/model-catalog.json",
-)
+    "https://geo-decision.com/intranet/hermes-server/api/v1/model-catalog.json")
+# No fallback: unlike NousResearch's manifest, the ALTA catalog has no public mirror, and
+# falling back to an unrelated third-party manifest would show models the ALTA server never
+# configured. A fetch failure here just serves the stale disk cache (see get_catalog()).
+DEFAULT_CATALOG_FALLBACK_URLS: tuple[str, ...] = ()
 DEFAULT_TTL_MINUTES = 20
 # Legacy key, honoured only when the user set it explicitly; ``ttl_minutes`` is the shipped default.
 DEFAULT_TTL_HOURS = DEFAULT_TTL_MINUTES / 60.0
@@ -85,9 +84,18 @@ def _cache_path() -> Path:
 
 
 def _fetch_manifest(url: str, timeout: float) -> dict[str, Any] | None:
-    """HTTP GET the manifest URL and return a validated dict, or None on failure."""
+    """HTTP GET the manifest URL and return a validated dict, or None on failure.
+
+    Attaches the Entra Bearer token (see ``hermes_cli.entra_auth``) only when ``url`` is
+    exactly the ALTA server's own ``DEFAULT_CATALOG_URL`` — never to a fallback or
+    per-provider override URL, which may point at a third-party host.
+    """
+    headers = {"Accept": "application/json", "User-Agent": _HERMES_USER_AGENT}
+    if url == DEFAULT_CATALOG_URL:
+        from hermes_cli.entra_auth import entra_bearer_header
+        headers.update(entra_bearer_header())
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": _HERMES_USER_AGENT})
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:

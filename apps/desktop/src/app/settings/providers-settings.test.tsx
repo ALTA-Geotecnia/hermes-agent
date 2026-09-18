@@ -3,6 +3,7 @@ import { atom } from 'nanostores'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ConfirmHost } from '@/components/confirm-host'
+import { $byokEnabled } from '@/store/byok-flag'
 import { $confirmRequest } from '@/store/confirm'
 import type { EnvVarInfo, OAuthProvider } from '@/types/hermes'
 
@@ -82,6 +83,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   $confirmRequest.set(null)
+  $byokEnabled.set(true)
   vi.restoreAllMocks()
   vi.clearAllMocks()
 })
@@ -301,5 +303,36 @@ describe('ProvidersSettings', () => {
     fireEvent.click(row)
 
     await waitFor(() => expect(startManualLocalEndpoint).toHaveBeenCalledWith(null))
+  })
+
+  it('hides the API-keys pane when the ALTA build disables BYOK', async () => {
+    $byokEnabled.set(false)
+    getEnvVars.mockResolvedValue({ WIDGET_API_KEY: keyVar({ provider: 'widget', provider_label: 'Widget' }) })
+    listOAuthProviders.mockResolvedValue({ providers: [] })
+
+    const { ProvidersSettings } = await import('./providers-settings')
+    await act(async () => {
+      render(<ProvidersSettings onClose={vi.fn()} onViewChange={vi.fn()} view="keys" />)
+    })
+
+    expect(screen.queryByText('Widget')).toBeNull()
+    expect(screen.queryByText('Local / custom endpoint')).toBeNull()
+  })
+
+  it('renders nothing for the custom-endpoints view when the ALTA build disables BYOK', async () => {
+    $byokEnabled.set(false)
+    getEnvVars.mockResolvedValue({})
+    listOAuthProviders.mockResolvedValue({ providers: [] })
+
+    const { ProvidersSettings } = await import('./providers-settings')
+    const { container } = await (async () => {
+      let result: ReturnType<typeof render>
+      await act(async () => {
+        result = render(<ProvidersSettings onClose={vi.fn()} onViewChange={vi.fn()} view="custom-endpoints" />)
+      })
+      return result!
+    })()
+
+    await waitFor(() => expect(container.textContent).toBe(''))
   })
 })

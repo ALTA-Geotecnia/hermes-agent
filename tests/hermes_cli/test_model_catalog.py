@@ -89,6 +89,74 @@ class TestFetchSuccess:
             assert json.load(fh) == manifest
 
 
+class TestEntraAuthHeader:
+    """``_fetch_manifest`` attaches the Entra Bearer token only for the ALTA server's own
+    DEFAULT_CATALOG_URL — oauth2-proxy validates it (OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS)
+    in place of a browser session cookie; a fallback/override URL is a different host and
+    must never receive it."""
+
+    def _install_token(self, tmp_path, monkeypatch):
+        token_file = tmp_path / "entra-access-token.json"
+        token_file.write_text(json.dumps({"accessToken": "tok-abc", "expiresAt": time.time() + 3600}))
+        monkeypatch.setenv("HERMES_ENTRA_ACCESS_TOKEN_FILE", str(token_file))
+
+    def _fake_response(self, manifest):
+        class _Resp:
+            def __enter__(self_inner):
+                return self_inner
+            def __exit__(self_inner, *exc):
+                return False
+            def read(self_inner):
+                return json.dumps(manifest).encode()
+        return _Resp()
+
+    def test_attaches_bearer_header_for_default_catalog_url(self, isolated_home, tmp_path, monkeypatch):
+        from hermes_cli import model_catalog
+        self._install_token(tmp_path, monkeypatch)
+        manifest = _valid_manifest()
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.header_items())
+            return self._fake_response(manifest)
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = model_catalog._fetch_manifest(model_catalog.DEFAULT_CATALOG_URL, 5.0)
+
+        assert result == manifest
+        assert captured["headers"].get("Authorization") == "Bearer tok-abc"
+
+    def test_no_bearer_header_for_a_different_url(self, isolated_home, tmp_path, monkeypatch):
+        from hermes_cli import model_catalog
+        self._install_token(tmp_path, monkeypatch)
+        manifest = _valid_manifest()
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.header_items())
+            return self._fake_response(manifest)
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            model_catalog._fetch_manifest("https://example.com/some-other-manifest.json", 5.0)
+
+        assert "Authorization" not in captured["headers"]
+
+    def test_no_bearer_header_when_no_token_available(self, isolated_home, monkeypatch):
+        from hermes_cli import model_catalog
+        monkeypatch.delenv("HERMES_ENTRA_ACCESS_TOKEN_FILE", raising=False)
+        manifest = _valid_manifest()
+        captured: dict = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.header_items())
+            return self._fake_response(manifest)
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            model_catalog._fetch_manifest(model_catalog.DEFAULT_CATALOG_URL, 5.0)
+
+        assert "Authorization" not in captured["headers"]
+
+
 class TestFetchFailure:
     def test_network_failure_returns_empty_when_no_cache(self, isolated_home):
         from hermes_cli import model_catalog
@@ -130,11 +198,13 @@ class TestFetchFailure:
 
 
 class TestFallbackChain:
-    """``_fetch_manifest_with_fallback`` walks ``DEFAULT_CATALOG_FALLBACK_URLS``
-    when the primary URL fails. Regression: the Docusaurus site behind Vercel
-    occasionally returns HTTP 403 + x-vercel-mitigated: challenge for urllib;
-    without a fallback URL the user's disk cache freezes and new model
-    releases (opus 4.8, etc.) never reach the picker.
+    """``_fetch_manifest_with_fallback`` walks whatever ``fallback_urls`` it is given when
+    the primary URL fails — the mechanism is generic (kept from the upstream NousResearch
+    fork, whose Docusaurus site behind Vercel occasionally 403s urllib and needed a raw
+    GitHub mirror). The ALTA server has no such third-party mirror, so
+    ``DEFAULT_CATALOG_FALLBACK_URLS`` is intentionally empty now (see
+    ``test_default_fallback_urls_is_empty``) — a primary failure serves the stale disk
+    cache instead (``TestFetchFailure``).
     """
 
     PRIMARY = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
@@ -142,6 +212,10 @@ class TestFallbackChain:
         "https://raw.githubusercontent.com/NousResearch/hermes-agent"
         "/main/website/static/api/model-catalog.json"
     )
+
+    def test_default_fallback_urls_is_empty(self, isolated_home):
+        from hermes_cli import model_catalog
+        assert model_catalog.DEFAULT_CATALOG_FALLBACK_URLS == ()
 
     def test_uses_primary_when_it_succeeds(self, isolated_home):
         from hermes_cli import model_catalog
@@ -152,46 +226,43 @@ class TestFallbackChain:
             return _valid_manifest()
 
         with patch.object(model_catalog, "_fetch_manifest", side_effect=fake_fetch):
-            result = model_catalog._fetch_manifest_with_fallback(self.PRIMARY, 5.0)
+            result = model_catalog._fetch_manifest_with_fallback(self.PRIMARY, 5.0, (self.FALLBACK,))
 
         assert result is not None
         assert calls == [self.PRIMARY], "fallback URLs must not be touched on primary success"
 
-    def test_falls_through_to_raw_github_on_primary_failure(self, isolated_home):
+    def test_falls_through_to_an_explicit_fallback_url_on_primary_failure(self, isolated_home):
         from hermes_cli import model_catalog
         calls: list[str] = []
 
         def fake_fetch(url, timeout):
             calls.append(url)
             if url == self.PRIMARY:
-                return None  # simulate Vercel 403
+                return None  # simulate the primary being unreachable
             return _valid_manifest()
 
         with patch.object(model_catalog, "_fetch_manifest", side_effect=fake_fetch):
-            result = model_catalog._fetch_manifest_with_fallback(self.PRIMARY, 5.0)
+            result = model_catalog._fetch_manifest_with_fallback(self.PRIMARY, 5.0, (self.FALLBACK,))
 
         assert result is not None
         assert calls == [self.PRIMARY, self.FALLBACK]
 
-
-    def test_get_catalog_uses_fallback_chain(self, isolated_home):
-        """End-to-end: ``get_catalog`` routes through the fallback helper so
-        a primary URL failure transparently produces a working catalog."""
+    def test_get_catalog_routes_through_the_fallback_aware_fetcher(self, isolated_home):
+        """End-to-end: ``get_catalog`` calls ``_fetch_manifest_with_fallback`` with the
+        configured (ALTA) catalog URL, not ``_fetch_manifest`` directly."""
         from hermes_cli import model_catalog
         manifest = _valid_manifest()
         calls: list[str] = []
 
-        def fake_fetch(url, timeout):
+        def fake_fetch_with_fallback(url, timeout, fallback_urls=model_catalog.DEFAULT_CATALOG_FALLBACK_URLS):
             calls.append(url)
-            if url == self.PRIMARY:
-                return None
             return manifest
 
-        with patch.object(model_catalog, "_fetch_manifest", side_effect=fake_fetch):
+        with patch.object(model_catalog, "_fetch_manifest_with_fallback", side_effect=fake_fetch_with_fallback):
             result = model_catalog.get_catalog(force_refresh=True)
 
         assert result == manifest
-        assert self.FALLBACK in calls
+        assert calls == [model_catalog.DEFAULT_CATALOG_URL]
 
 
 class TestCuratedAccessors:

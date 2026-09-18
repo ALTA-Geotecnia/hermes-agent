@@ -29,6 +29,7 @@ import {
 import { isEditableTarget } from '@/lib/keybinds/combo'
 import { typeToFocusChar } from '@/lib/keybinds/composer-focus-keys'
 import { cn } from '@/lib/utils'
+import { $byokEnabled } from '@/store/byok-flag'
 import { $commandPaletteOpen, openCommandPalettePage } from '@/store/command-palette'
 import { confirm } from '@/store/confirm'
 import { $activeConnectionId } from '@/store/connections'
@@ -224,20 +225,26 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             label: t.settings.nav.providerAccounts,
             onSelect: () => openProviderView('accounts')
           },
-          {
-            active: activeView === 'providers' && providerView === 'keys',
-            icon: KeyRound,
-            id: 'pview:keys',
-            label: t.settings.nav.providerApiKeys,
-            onSelect: () => openProviderView('keys')
-          },
-          {
-            active: activeView === 'providers' && providerView === 'custom-endpoints',
-            icon: Globe,
-            id: 'pview:custom-endpoints',
-            label: t.settings.nav.providerCustomEndpoints,
-            onSelect: () => openProviderView('custom-endpoints')
-          },
+          // BYOK (raw API keys / custom endpoints) is off on the ALTA build:
+          // no flag, no nav entry — mirrors the --local gate below.
+          ...($byokEnabled.get()
+            ? [
+                {
+                  active: activeView === 'providers' && providerView === 'keys',
+                  icon: KeyRound,
+                  id: 'pview:keys',
+                  label: t.settings.nav.providerApiKeys,
+                  onSelect: () => openProviderView('keys')
+                },
+                {
+                  active: activeView === 'providers' && providerView === 'custom-endpoints',
+                  icon: Globe,
+                  id: 'pview:custom-endpoints',
+                  label: t.settings.nav.providerCustomEndpoints,
+                  onSelect: () => openProviderView('custom-endpoints')
+                }
+              ]
+            : []),
           // Local models ships behind the --local launch flag: no flag, no
           // nav entry (the pane itself also refuses to render, so a stale
           // ?pview=local deep link falls back to accounts-shaped emptiness

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { currentPickerSelection, displayModelName, formatModelPillLabel, modelDisplayParts } from './model-status-label'
+import {
+  currentPickerSelection,
+  displayModelName,
+  formatModelPillLabel,
+  mergeModelLabels,
+  modelDisplayParts
+} from './model-status-label'
 import { reasoningEffortLabel } from './reasoning-effort'
 
 describe('model-status-label', () => {
@@ -41,6 +47,19 @@ describe('model-status-label', () => {
     expect(formatModelPillLabel('anthropic/claude-opus-4.8-fast')).toBe('Opus 4.8 · Fast')
     expect(formatModelPillLabel('openai/gpt-5.5')).toBe('GPT-5.5')
     expect(formatModelPillLabel('')).toBe('No model')
+  })
+
+  it('prefers a merged label (e.g. the ALTA catalog "nome amigavel") over the generic id derivation', () => {
+    // Unique ids scoped to this test so it can't collide with — or be polluted
+    // by — the module-level registry other tests in this file (or other
+    // files run in the same worker) might merge into.
+    mergeModelLabels({ 'test-alta-glm': 'Alta Flash' })
+
+    expect(modelDisplayParts('test-alta-glm')).toEqual({ name: 'Alta Flash', tag: '' })
+    expect(displayModelName('test-alta-glm')).toBe('Alta Flash')
+    expect(formatModelPillLabel('test-alta-glm')).toBe('Alta Flash')
+    // An id the registry never saw still falls back to the generic derivation.
+    expect(displayModelName('test-unregistered-model')).toBe('Test Unregistered Model')
   })
 
   describe('currentPickerSelection', () => {

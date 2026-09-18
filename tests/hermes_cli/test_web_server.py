@@ -2437,6 +2437,91 @@ class TestWebServerEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# HERMES_DISABLE_BYOK (ALTA corporate desktop build: no direct API-key entry)
+# ---------------------------------------------------------------------------
+
+
+class TestByokDisabled:
+    """HERMES_DISABLE_BYOK=1 blocks direct-key/custom-endpoint model routes.
+
+    Unset (the default), these routes behave exactly as before — the flag is
+    only ever set by the ALTA desktop build's backend spawn, never by the CLI,
+    the TUI, or this test suite's own environment.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+        from starlette.testclient import TestClient
+        from hermes_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
+
+        self.client = TestClient(app)
+        self.client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
+
+    def test_provider_credential_env_var_is_detected(self):
+        from hermes_cli.web_routers.config_env import _is_provider_credential_env_var
+
+        assert _is_provider_credential_env_var("OPENROUTER_API_KEY") is True
+        assert _is_provider_credential_env_var("NOT_A_REAL_ENV_VAR") is False
+
+    def test_set_env_var_blocks_provider_credential_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        resp = self.client.put("/api/env", json={"key": "OPENROUTER_API_KEY", "value": "sk-or-secret"})
+        assert resp.status_code == 403
+
+        from hermes_cli.config import load_env
+        assert "OPENROUTER_API_KEY" not in load_env()
+
+    def test_set_env_var_allows_non_provider_key_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        resp = self.client.put("/api/env", json={"key": "MY_CUSTOM_TOOL_TOKEN", "value": "tok-123"})
+        assert resp.status_code == 200
+
+    def test_set_env_var_allows_provider_credential_when_flag_unset(self):
+        resp = self.client.put("/api/env", json={"key": "OPENROUTER_API_KEY", "value": "sk-or-secret"})
+        assert resp.status_code == 200
+
+    def test_custom_endpoint_create_blocked_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        resp = self.client.post(
+            "/api/providers/custom-endpoints",
+            json={"id": "acme", "name": "Acme", "base_url": "https://llm.acme.corp/v1", "model": "m"},
+        )
+        assert resp.status_code == 403
+
+        from hermes_cli.config import load_config
+        assert "acme" not in (load_config().get("providers") or {})
+
+    def test_custom_endpoint_activate_blocked_when_disabled(self, monkeypatch):
+        # Seed a legitimate endpoint before the flag is set, mirroring an
+        # entry a non-ALTA build (or an earlier admin) already saved.
+        self.client.post(
+            "/api/providers/custom-endpoints",
+            json={"id": "acme", "name": "Acme", "base_url": "https://llm.acme.corp/v1", "model": "m"},
+        )
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        resp = self.client.post("/api/providers/custom-endpoints/acme/activate", json={})
+        assert resp.status_code == 403
+
+    def test_model_set_blocks_explicit_api_key_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        resp = self.client.post(
+            "/api/model/set",
+            json={"scope": "main", "provider": "custom", "model": "m", "api_key": "sk-secret"},
+        )
+        assert resp.status_code == 403
+
+    def test_model_set_does_not_block_requests_with_no_api_key(self, monkeypatch):
+        # Whatever the pre-existing provider/model validation decides for this payload,
+        # the BYOK gate itself must be a no-op when no api_key is submitted — compare
+        # against the same call with the flag unset rather than assume a status code.
+        payload = {"scope": "main", "provider": "openrouter", "model": "openrouter/some-model"}
+        baseline = self.client.post("/api/model/set", json=payload)
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        gated = self.client.post("/api/model/set", json=payload)
+        assert gated.status_code == baseline.status_code
+
+
+# ---------------------------------------------------------------------------
 # _build_schema_from_config tests
 # ---------------------------------------------------------------------------
 

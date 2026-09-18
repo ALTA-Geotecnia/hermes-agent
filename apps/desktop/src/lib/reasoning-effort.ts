@@ -1,4 +1,4 @@
-import { DEFAULT_REASONING_EFFORT, isReasoningEffort } from '@hermes/shared'
+import { DEFAULT_REASONING_EFFORT, isReasoningEffort, REASONING_EFFORTS } from '@hermes/shared'
 
 import { normalize } from '@/lib/text'
 
@@ -28,12 +28,27 @@ export const isThinkingEnabled = (effort: string, fallback: string = DEFAULT_REA
 
 /** The level a scale control should show. Empty inherits `fallback`; `none`
  *  (thinking off) selects nothing; anything unrecognized clamps to the default. */
-export function resolveReasoningEffort(effort: string, fallback: string = DEFAULT_REASONING_EFFORT): string {
+export function resolveReasoningEffort(
+  effort: string,
+  fallback: string = DEFAULT_REASONING_EFFORT,
+  allowed: readonly string[] = REASONING_EFFORTS
+): string {
   const value = normalize(effort || fallback)
+  const available = allowed.map(level => normalize(level)).filter(Boolean)
 
   if (value === 'none') {
     return ''
   }
 
-  return isReasoningEffort(value) ? value : DEFAULT_REASONING_EFFORT
+  if (available.includes(value)) {
+    return value
+  }
+
+  const normalizedFallback = normalize(fallback)
+
+  if (available.includes(normalizedFallback)) {
+    return normalizedFallback
+  }
+
+  return available[0] ?? (isReasoningEffort(value) ? value : DEFAULT_REASONING_EFFORT)
 }

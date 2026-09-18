@@ -11,7 +11,7 @@ import asyncio
 import time
 import urllib.parse
 from fastapi import APIRouter
-from hermes_cli.web_routers._common import http_failure, scoped_to_thread
+from hermes_cli.web_routers._common import BYOK_DISABLED_DETAIL, byok_disabled, http_failure, scoped_to_thread
 from hermes_cli.web_deps import LateState, late
 from hermes_cli.web_server_config import (
     _apply_main_model_assignment, _denormalize_config_from_web, _normalize_config_for_web, _schema_with_dynamic_provider_options,
@@ -222,6 +222,14 @@ def _catalog_provider_env_metadata() -> dict:
     return meta
 
 
+def _is_provider_credential_env_var(var_name: str) -> bool:
+    """True when ``var_name`` is a chat-model provider credential — the same
+    "provider" category the Keys tab groups it under (see ``_row`` below)."""
+    info = OPTIONAL_ENV_VARS.get(var_name, {})
+    category = info.get("category") or _catalog_provider_env_metadata().get(var_name, {}).get("category", "")
+    return category == "provider"
+
+
 @router.get("/api/env")
 async def get_env_vars(profile: Optional[str] = None):
     # _profile_scope takes _SKILLS_PROFILE_LOCK and load_env()/catalog
@@ -288,6 +296,8 @@ async def set_env_var(body: EnvVarUpdate, profile: Optional[str] = None):
     # mirror still holding the previous value of this var (model.api_key /
     # auxiliary.*.api_key / custom_providers[*]), so a rotation can't leave a
     # stale higher-precedence copy that keeps authenticating with the old key.
+    if byok_disabled() and _is_provider_credential_env_var(body.key):
+        raise HTTPException(status_code=403, detail=BYOK_DISABLED_DETAIL)
     with _env_write_errors("PUT /api/env failed", http_passthrough=False):
         from hermes_cli.credential_lifecycle import save_provider_env_credential
 
@@ -542,6 +552,8 @@ def list_custom_endpoints(profile: Optional[str] = None):
 @router.post("/api/providers/custom-endpoints")
 def upsert_custom_endpoint(body: CustomEndpointUpdate, profile: Optional[str] = None):
     """Create or update a v12+ ``providers`` custom endpoint entry."""
+    if byok_disabled():
+        raise HTTPException(status_code=403, detail=BYOK_DISABLED_DETAIL)
     with http_failure("POST /api/providers/custom-endpoints failed", 500, detail="Failed to save custom endpoint"):
         # Sync-def endpoints run on worker threads: the load→mutate→save span
         # holds _CONFIG_MUTATION_LOCK so a concurrent config autosave cannot
@@ -559,6 +571,8 @@ def upsert_custom_endpoint(body: CustomEndpointUpdate, profile: Optional[str] = 
 @router.post("/api/providers/custom-endpoints/{endpoint_id}/activate")
 def activate_custom_endpoint(endpoint_id: str, profile: Optional[str] = None):
     """Set a configured custom endpoint as the default model provider."""
+    if byok_disabled():
+        raise HTTPException(status_code=403, detail=BYOK_DISABLED_DETAIL)
     with http_failure(
         f"POST /api/providers/custom-endpoints/{endpoint_id}/activate failed", 500,
         detail="Failed to activate custom endpoint",

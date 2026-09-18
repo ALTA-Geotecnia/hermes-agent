@@ -1,3 +1,20 @@
+// Populated by query-client.ts whenever a `model-options` query resolves — lets every
+// surface that shows a model name (picker, composer pill, status bar) use a provider's
+// own display name for a model id (e.g. the ALTA catalog's admin-configured "nomes
+// amigaveis") without threading the provider list through each consumer of
+// displayModelName/formatModelPillLabel. Merge-only, never cleared: a stale entry for an
+// id that no longer applies is harmless, while clearing on every query event would flash
+// the generic fallback between fetches.
+let modelLabelRegistry: Readonly<Record<string, string>> = {}
+
+export function mergeModelLabels(labels: Readonly<Record<string, string>>): void {
+  if (Object.keys(labels).length === 0) {
+    return
+  }
+
+  modelLabelRegistry = { ...modelLabelRegistry, ...labels }
+}
+
 /** Which model/provider pair a picker should mark "current". SessionView state
  *  also drives the composer label, so a complete pair there wins over an older
  *  `model.options` response. During initial hydration (or pre-session startup),
@@ -70,6 +87,12 @@ function prettifyBase(base: string): string {
 /** Split a model id into a clean display name plus an optional grayed variant
  *  tag, so distinct ids (e.g. `…-4.8` vs `…-4.8-fast`) don't collapse. */
 export function modelDisplayParts(model: string): { name: string; tag: string } {
+  const registered = modelLabelRegistry[model.trim()]
+
+  if (registered) {
+    return { name: registered, tag: '' }
+  }
+
   let base = modelBaseId(model)
   let tag = ''
 

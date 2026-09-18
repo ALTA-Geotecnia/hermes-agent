@@ -241,6 +241,7 @@ class ModelCapabilities(Result):
 
     fast: bool
     reasoning: bool
+    reasoning_efforts: list[str] | None = None
     can_disable_reasoning: bool | None = None
 
 
@@ -251,6 +252,11 @@ class ModelOptionProvider(OpenModel):
     slug: str
     name: str
     models: list[str] = Field(default_factory=list)
+    # Per-model display label ("nome amigavel"), keyed by model id — overrides the picker's generic
+    # id-to-title-case derivation when present. Currently only the ALTA server catalog row sets this
+    # (hermes_cli/inventory.py::_alta_provider_row); every other provider omits it and keeps the
+    # existing fallback.
+    model_labels: dict[str, str] | None = None
     total_models: int | None = None
     is_current: bool | None = None
     is_user_defined: bool | None = None

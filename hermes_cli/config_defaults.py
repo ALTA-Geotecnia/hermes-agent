@@ -1877,12 +1877,13 @@ DEFAULT_CONFIG = {
         "max_size_mb": 5,      # max size per log file before rotation
         "backup_count": 3,     # rotated backups to keep
     },
-    # Remote model-catalog manifest: curated OpenRouter / Nous Portal model lists fetched from this
-    # URL (falls back to the in-repo snapshot on network failure), so picker lists update without a
-    # release. Default URL is served by the docs-site GitHub Pages deploy.
+    # Remote model-catalog manifest: the ALTA server's own catalog (falls back to the stale
+    # disk cache on network failure), so picker lists update without a release. Must stay in
+    # sync with hermes_cli.model_catalog.DEFAULT_CATALOG_URL — model_catalog._fetch_manifest()
+    # only attaches the Entra Bearer auth header when the URL matches that constant exactly.
     "model_catalog": {
         "enabled": True,
-        "url": "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json",
+        "url": "https://geo-decision.com/intranet/hermes-server/api/v1/model-catalog.json",
         # Disk cache TTL in minutes. The gateway refreshes in the background on this cadence; the
         # CLI refetches on the next /model or `hermes model` once the cache is older. Network
         # failures silently use the stale cache. Legacy `ttl_hours` is honoured if set.

@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   // Launch-flag fact: skip the first-run film (HERMES_SKIP_INTRO=1 or
   // --skip-intro). Rehearsal aid for the guided chat behind it.
   skipIntro: launchFlags?.skipIntro === true,
+  // Launch-flag fact: bring-your-own-key model providers are allowed. Only
+  // the ALTA corporate build's main process reports `false`; every other
+  // launch (including an absent flag) keeps BYOK on.
+  byokEnabled: launchFlags?.byokEnabled !== false,
   getConnection: (profile, opts) => ipcRenderer.invoke('hermes:connection', profile, opts),
   // Registry-scoped backend resolution: { connectionId, profile } → descriptor.
   getConnectionFor: payload => ipcRenderer.invoke('hermes:connection:for', payload),

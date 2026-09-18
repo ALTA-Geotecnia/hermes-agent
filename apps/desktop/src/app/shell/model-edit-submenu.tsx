@@ -77,6 +77,8 @@ interface ModelEditSubmenuProps {
   isActive: boolean
   /** This row's model id. */
   model: string
+  /** Provider-declared effort levels. Empty/undefined uses Hermes' complete ladder. */
+  reasoningEfforts?: readonly string[]
   /** Switch to a specific model id (used to swap base ⇄ -fast variant). */
   onSelectModel: (model: string) => Promise<boolean | void> | void
   /** Report an option change. This submenu is PURE: it never writes to a
@@ -113,14 +115,17 @@ export function ModelOptionsContent({
   isActive,
   onSelectModel,
   onSetOptions,
-  reasoning
+  reasoning,
+  reasoningEfforts
 }: ModelEditSubmenuProps) {
   const { t } = useI18n()
   const copy = t.shell.modelOptions
 
-  const effortValue = resolveReasoningEffort(effort, defaultEffort)
+  const effortOptions = reasoningEfforts?.length ? reasoningEfforts : REASONING_EFFORTS
+  const effortValue = resolveReasoningEffort(effort, defaultEffort, effortOptions)
   const thinkingOn = isThinkingEnabled(effort, defaultEffort)
   const showThinkingToggle = reasoning && canDisableReasoning !== false
+  const effortLabel = (value: string) => copy[value as keyof typeof copy] ?? value
 
   const setFast = (enabled: boolean) => {
     if (fastControl.kind === 'variant') {
@@ -171,14 +176,14 @@ export function ModelOptionsContent({
           <DropdownMenuSeparator className="mx-0" />
           <DropdownMenuLabel className={dropdownMenuSectionLabel}>{copy.effort}</DropdownMenuLabel>
           <DropdownMenuRadioGroup onValueChange={value => onSetOptions({ effort: value })} value={effortValue}>
-            {REASONING_EFFORTS.map(value => (
+            {effortOptions.map(value => (
               <DropdownMenuRadioItem
                 className={dropdownMenuRow}
                 key={value}
                 onSelect={event => event.preventDefault()}
                 value={value}
               >
-                {copy[value]}
+                {effortLabel(value)}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

@@ -1,4 +1,7 @@
+import type { ModelOptionsResult } from '@hermes/shared'
 import { QueryClient, type QueryKey } from '@tanstack/react-query'
+
+import { mergeModelLabels } from '@/lib/model-status-label'
 
 // Shared React Query client. Lives in its own module (not main.tsx) so non-React
 // code — e.g. the profile store on a gateway swap — can invalidate cached,
@@ -10,6 +13,29 @@ export const queryClient = new QueryClient({
       staleTime: 60_000
     }
   }
+})
+
+// Whichever surface happens to fetch `model-options` first (the catalog menu, the
+// composer pill's own read, onboarding, …) feeds every OTHER surface a provider's
+// display names via the shared registry in model-status-label.ts — one subscription
+// here beats threading `model_labels` through every consumer of displayModelName.
+queryClient.getQueryCache().subscribe(event => {
+  if (event.type !== 'updated' && event.type !== 'added') {
+    return
+  }
+
+  if (event.query.queryKey[0] !== 'model-options') {
+    return
+  }
+
+  const data = event.query.state.data as ModelOptionsResult | undefined
+  const labels: Record<string, string> = {}
+
+  for (const provider of data?.providers ?? []) {
+    Object.assign(labels, provider.model_labels ?? {})
+  }
+
+  mergeModelLabels(labels)
 })
 
 // Curried, setState-shaped cache writer for optimistic write-through: keeps

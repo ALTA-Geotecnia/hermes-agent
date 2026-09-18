@@ -83,6 +83,14 @@ def build_models_payload(
     only providers the user explicitly configured — hides ambient/auto-seeded credentials from
     desktop chat pickers. ``pricing_cache_only``: with ``pricing``, use only values already resident
     in process caches (normal picker opens, while a background worker warms cold endpoints)."""
+    # ALTA corporate desktop build (HERMES_DISABLE_BYOK=1): the server catalog is the ONLY source of
+    # selectable models (hermes-agent-pqy) — short-circuit before any pool/credential/BYOK provider is
+    # even looked up, so a leftover BYOK config from before this build (or an ambient OAuth credential
+    # like copilot/anthropic) never resurfaces in the picker.
+    alta_row = _alta_provider_row(ctx.current_provider)
+    if alta_row is not None:
+        return {"providers": [alta_row], "model": ctx.current_model, "provider": ctx.current_provider}
+
     from hermes_cli.model_switch import list_authenticated_providers
 
     rows = list_authenticated_providers(
@@ -284,6 +292,7 @@ def _apply_capabilities(rows: list[dict]) -> None:
     for row in rows:
         slug = row.get("slug") or ""
         caps: dict[str, dict[str, Any]] = {}
+        declared_caps = row.get("capabilities") if isinstance(row.get("capabilities"), dict) else {}
         read_reasoning_catalog = _reasoning_catalog_reader(slug.lower())
 
         for model in row.get("models") or []:
@@ -297,6 +306,17 @@ def _apply_capabilities(rows: list[dict]) -> None:
                     reasoning = True
 
             entry: dict[str, Any] = {"fast": bool(model_supports_fast_mode(model)), "reasoning": reasoning}
+            declared = declared_caps.get(model) if isinstance(declared_caps.get(model), dict) else {}
+            if isinstance(declared.get("reasoning_efforts"), list):
+                entry["reasoning_efforts"] = [
+                    str(effort).strip().lower()
+                    for effort in declared["reasoning_efforts"]
+                    if str(effort).strip()
+                ]
+                if "reasoning" in declared:
+                    entry["reasoning"] = bool(declared["reasoning"])
+                if "can_disable_reasoning" in declared:
+                    entry["can_disable_reasoning"] = bool(declared["can_disable_reasoning"])
 
             if reasoning and read_reasoning_catalog is not None:
                 try:
@@ -729,6 +749,45 @@ def _prewarm_pricing_async(
         _pricing_prewarm_threads[prewarm_key] = thread
         thread.start()
         return thread
+
+
+def _alta_provider_row(current_provider: str = "") -> dict | None:
+    """The ALTA Hermes Server relay row — injected unconditionally in the corporate desktop build,
+    never gated by credential-pool authentication: the Entra ID login gate is mandatory app-wide
+    before the Python backend even starts (apps/desktop/electron/main.ts), so there is no separate
+    "connect this provider" step. Models AND their display names ("nomes amigaveis") come from the
+    server's own catalog (model_catalog.get_catalog()) — never a static list, and never the real
+    backend model name (hermes-agent-bxh). None outside the ALTA build (HERMES_DISABLE_BYOK unset)
+    or when the catalog has no "alta" block yet (unreachable / not logged in)."""
+    from hermes_cli.web_routers._common import byok_disabled
+    if not byok_disabled():
+        return None
+    from hermes_cli import model_catalog
+    block = (model_catalog.get_catalog() or {}).get("providers", {}).get("alta")
+    if not isinstance(block, dict):
+        return None
+    entries = [m for m in (block.get("models") or []) if isinstance(m, dict) and str(m.get("id") or "").strip()]
+    if not entries:
+        return None
+    models = [str(m["id"]).strip() for m in entries]
+    model_labels = {str(m["id"]).strip(): str(m.get("name") or m["id"]).strip() for m in entries}
+    capabilities = {}
+    for entry in entries:
+        model_id = str(entry["id"]).strip()
+        declared = entry.get("capabilities") if isinstance(entry.get("capabilities"), dict) else {}
+        efforts = declared.get("reasoning_efforts") if isinstance(declared.get("reasoning_efforts"), list) else []
+        efforts = [str(effort).strip().lower() for effort in efforts if str(effort).strip()]
+        capabilities[model_id] = {
+            "fast": False,
+            "reasoning": bool(declared.get("reasoning", efforts)),
+            "reasoning_efforts": efforts,
+            "can_disable_reasoning": declared.get("can_disable_reasoning", bool(efforts)),
+        }
+    display_name = str((block.get("metadata") or {}).get("display_name") or "ALTA")
+    return _row(
+        "alta", display_name, (current_provider or "").lower() == "alta", models=models, model_labels=model_labels,
+        total_models=len(models), source="alta-entra", authenticated=True, auth_type="alta_entra",
+        capabilities=capabilities)
 
 
 def _moa_provider_row(current_provider: str = "") -> dict | None:

@@ -715,6 +715,7 @@ export interface ModelOptionProvider {
   slug: string
   name: string
   models?: string[]
+  model_labels?: Record<string, string> | null
   total_models?: number | null
   is_current?: boolean | null
   is_user_defined?: boolean | null
@@ -739,6 +740,7 @@ export interface ModelOptionProvider {
 export interface ModelCapabilities {
   fast: boolean
   reasoning: boolean
+  reasoning_efforts?: string[] | null
   can_disable_reasoning?: boolean | null
 }
 /** ``hermes_cli/inventory.py::_apply_pricing`` — formatted $/Mtok strings (``""`` unknown, ``"free"``); the sale fields are Nous Portal-only. */

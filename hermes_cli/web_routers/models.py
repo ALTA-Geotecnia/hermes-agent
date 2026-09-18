@@ -18,7 +18,9 @@ from hermes_cli.web_server_config import (
 from agent.model_metadata import is_local_endpoint
 from starlette.concurrency import run_in_threadpool
 from hermes_cli.web_models import ModelAssignment, MoaConfigPayload, MoaModelSlot
-from hermes_cli.web_routers._common import _CONFIG_MUTATION_LOCK, config_write_scope, http_failure
+from hermes_cli.web_routers._common import (
+    BYOK_DISABLED_DETAIL, _CONFIG_MUTATION_LOCK, byok_disabled, config_write_scope, http_failure,
+)
 
 _log = logging.getLogger("hermes_cli.web_server")
 router = APIRouter()
@@ -274,6 +276,8 @@ async def set_model_assignment(body: ModelAssignment, profile: Optional[str] = N
     """Assign a model to the main slot or an auxiliary task slot. Writes
     ``~/.hermes/config.yaml`` — applies to **new** sessions only; a running chat
     PTY hot-swaps via the ``/model`` slash command instead."""
+    if byok_disabled() and body.api_key.strip():
+        raise HTTPException(status_code=403, detail=BYOK_DISABLED_DETAIL)
     scope, task = (body.scope or "").strip().lower(), (body.task or "").strip().lower()
     provider, model = (body.provider or "").strip(), (body.model or "").strip()
     base_url, api_key = (body.base_url or "").strip(), (body.api_key or "").strip()
