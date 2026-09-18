@@ -1940,3 +1940,91 @@ def test_custom_provider_pool_target_model_wins(monkeypatch):
 
     assert resolved is not None
     assert resolved["model"] == "myproxy/gemini-flash"
+
+
+# ---------------------------------------------------------------------------
+# HERMES_DISABLE_BYOK: force "alta" over a stale configured provider (hermes-agent-rii)
+# ---------------------------------------------------------------------------
+
+
+class TestByokDisabledForcesAlta:
+    """ALTA corporate desktop build (HERMES_DISABLE_BYOK=1): a config.yaml saved before the ALTA
+    integration existed (or copied from another machine) can still have model.provider pointing
+    at a since-removed BYOK provider. That build must silently resolve/use "alta" instead,
+    without ever touching config.yaml — and with the flag unset (every other build, including
+    this suite by default), behavior must stay exactly as before.
+    """
+
+    def _set_config_provider(self, monkeypatch, provider):
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": provider, "default": "some-model"})
+
+    def test_stale_configured_provider_is_forced_to_alta(self, monkeypatch):
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        self._set_config_provider(monkeypatch, "opencode-zen")
+        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"alta": {"models": []}})
+
+        assert rp.resolve_requested_provider() == "alta"
+
+    def test_forced_alta_flows_through_full_ladder(self, monkeypatch):
+        """resolve_runtime_provider() (not just the provider-name helper) must land on alta —
+        this is the function every real call site (gateway, TUI, ACP) actually calls."""
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        self._set_config_provider(monkeypatch, "opencode-zen")
+        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"alta": {"models": []}})
+        monkeypatch.setattr(
+            rp,
+            "_resolve_alta_runtime",
+            lambda requested_provider: {
+                "provider": "alta", "api_mode": "chat_completions",
+                "base_url": "https://alta.example/v1", "api_key": "entra-token",
+                "requested_provider": requested_provider,
+            },
+        )
+
+        resolved = rp.resolve_runtime_provider()
+
+        assert resolved["provider"] == "alta"
+
+    def test_already_alta_is_left_alone(self, monkeypatch):
+        """Already-correct config must not even consult the catalog for this."""
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        self._set_config_provider(monkeypatch, "alta")
+        monkeypatch.setattr(
+            "hermes_cli.model_catalog.get_catalog",
+            lambda **_k: (_ for _ in ()).throw(AssertionError("get_catalog() should not be called")),
+        )
+
+        assert rp.resolve_requested_provider() == "alta"
+
+    def test_missing_alta_catalog_block_keeps_configured_provider(self, monkeypatch):
+        """No "alta" block in the catalog (offline / stale disk cache) -> fail safe, keep the
+        configured provider rather than force a relay that isn't actually available."""
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        self._set_config_provider(monkeypatch, "opencode-zen")
+        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {})
+
+        assert rp.resolve_requested_provider() == "opencode-zen"
+
+    def test_flag_unset_never_forces_alta(self, monkeypatch):
+        """Outside the ALTA corporate build (flag unset — the default everywhere else, including
+        this test suite), behavior is unchanged even if the catalog happens to list "alta"."""
+        monkeypatch.delenv("HERMES_DISABLE_BYOK", raising=False)
+        self._set_config_provider(monkeypatch, "opencode-zen")
+        monkeypatch.setattr(
+            "hermes_cli.model_catalog.get_catalog",
+            lambda **_k: (_ for _ in ()).throw(AssertionError("get_catalog() should not be called")),
+        )
+
+        assert rp.resolve_requested_provider() == "opencode-zen"
+
+    def test_explicit_requested_provider_is_never_overridden(self, monkeypatch):
+        """An internal caller naming a provider on purpose (MoA aggregator slot, usage-stats
+        probe, /model-switch preview, …) keeps meaning what it says even with BYOK disabled;
+        only the ambient config/env-derived resolution is forced."""
+        monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
+        monkeypatch.setattr(
+            "hermes_cli.model_catalog.get_catalog",
+            lambda **_k: (_ for _ in ()).throw(AssertionError("get_catalog() should not be called")),
+        )
+
+        assert rp.resolve_requested_provider("deepseek") == "deepseek"

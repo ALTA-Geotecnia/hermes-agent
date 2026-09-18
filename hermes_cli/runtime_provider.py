@@ -8,6 +8,7 @@ OpenRouter/bare-custom, Bedrock and external-process builders in
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
@@ -405,13 +406,45 @@ def _get_model_config() -> Dict[str, Any]:
 def resolve_requested_provider(requested: Optional[str] = None) -> str:
     """Provider request from explicit arg, then config, then ``HERMES_INFERENCE_PROVIDER``, else
     "auto". Config beats the env so chat uses the endpoint the user last saved, not a stale
-    shell/.env override."""
+    shell/.env override.
+
+    ALTA corporate desktop build only (``HERMES_DISABLE_BYOK=1``): a config- or env-derived
+    provider is forced to "alta" — see :func:`_force_alta_if_byok_disabled`. An explicit
+    ``requested`` arg is never overridden: callers that name a provider on purpose (MoA
+    aggregator slot, usage-stats probes, /model-switch previews, …) keep meaning what they say."""
     if requested and requested.strip():
         return requested.strip().lower()
     cfg_provider = _get_model_config().get("provider")
     if isinstance(cfg_provider, str) and cfg_provider.strip():
-        return cfg_provider.strip().lower()
-    return get_secret_str("HERMES_INFERENCE_PROVIDER", "").strip().lower() or "auto"
+        provider = cfg_provider.strip().lower()
+    else:
+        provider = get_secret_str("HERMES_INFERENCE_PROVIDER", "").strip().lower() or "auto"
+    return _force_alta_if_byok_disabled(provider)
+
+
+def _force_alta_if_byok_disabled(provider: str) -> str:
+    """ALTA corporate desktop build (``HERMES_DISABLE_BYOK=1``) ships only the "alta" provider.
+    A config.yaml saved before the ALTA integration existed (or copied from another machine) can
+    still point ``model.provider`` at a since-removed BYOK provider, silently stranding the agent
+    on a dead endpoint even though login and the ALTA catalog both work fine (hermes-agent-rii).
+    Force "alta" here, in memory only, whenever the flag is set and the catalog confirms "alta"
+    is actually available — never rewrite the user's config.yaml, never surface UI, just log.
+
+    Reads ``os.environ`` directly (mirroring, without importing,
+    ``hermes_cli.web_routers._common.byok_disabled()``) so this core resolution module — used by
+    the plain CLI, cron, and evals, not just the desktop backend — never pulls in that router's
+    FastAPI-only ("web" extra) dependency chain."""
+    if provider == "alta" or os.environ.get("HERMES_DISABLE_BYOK") != "1":
+        return provider
+    from hermes_cli.model_catalog import get_catalog
+
+    if not get_catalog().get("alta"):
+        return provider
+    logger.info(
+        "HERMES_DISABLE_BYOK=1: forcing model provider %r -> 'alta' (BYOK providers are disabled on this build)",
+        provider,
+    )
+    return "alta"
 
 
 # ── extracted collaborators (re-exported; see module docstring) ────────────────────────────
