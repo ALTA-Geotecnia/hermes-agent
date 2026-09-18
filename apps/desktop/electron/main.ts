@@ -182,6 +182,19 @@ import {
 } from './desktop-uninstall'
 import { describeDevCdpDecision, resolveDevCdpPort } from './dev-cdp'
 import { installEmbedReferer } from './embed-referer'
+import {
+  buildRefreshRequestBody,
+  decodeIdTokenClaims,
+  ENTRA_CLIENT_ID,
+  ENTRA_TENANT_ID,
+  type EntraIdentity,
+  type EntraSession,
+  entraTokenEndpoint,
+  tokenNeedsRefresh as entraTokenNeedsRefresh,
+  parseTokenResponse as parseEntraTokenResponse
+} from './entra-login'
+import { runEntraLogin } from './entra-oauth-login'
+import { type EntraTokenStoreIo, loadEntraSession, persistEntraSession } from './entra-token-store'
 import { createAmbientClaimArbiter } from './event-dedupe'
 import {
   buildTerminalScript,
@@ -7942,6 +7955,16 @@ function fetchJsonViaOauthSession(url, options: any = {}) {
 // ---------------------------------------------------------------------------
 // RFC 8252 native-app tokens (system-browser + loopback + PKCE).
 //
+// NOTE: this whole block (through _nativeTokenStorePath/_nativeTokenStoreIo
+// below and the coordinator that uses them) is about connecting THIS desktop
+// client to a self-hosted, possibly-remote Hermes GATEWAY that itself may
+// have an OAuth provider configured (see connection-config.ts,
+// gateway-settings.tsx). It is UNRELATED to the mandatory ALTA Entra ID login
+// gate ("Entra ID login gate" section further below, after the opt-in
+// keychain encryption block) — that gate is a separate, standalone flow that
+// logs the human into the local app itself, before any gateway is even
+// dialed. Do not conflate the two when reading or editing either.
+//
 // Unlike the cookie flow, the native flow hands the desktop opaque bearer
 // tokens it holds itself: the access token authenticates REST via
 // ``Authorization: Bearer`` (which the gateway gate now accepts) and mints WS
@@ -8888,6 +8911,202 @@ async function cloudAgentSilentSignIn(dashboardUrl) {
   await openOauthLoginWindow(baseUrl, { silent: true })
 
   return { baseUrl, connected: await hasOauthSessionCookie(baseUrl) }
+}
+
+// ---------------------------------------------------------------------------
+// Entra ID login gate — mandatory Microsoft Entra ID (Azure AD) sign-in
+// before the app is usable at all (ALTA requirement; see
+// PLANO-ADAPTACAO-HERMES.md and beads issue hermes-agent-bau).
+//
+// This is a NEW, standalone flow — see the note above the RFC 8252
+// native-app tokens block for why it shares no code with that (unrelated)
+// gateway-connection flow. Pure logic lives in entra-login.ts; the loopback
+// listener + browser + token-endpoint I/O lives in entra-oauth-login.ts;
+// this block is just the electron-coupled glue (safeStorage-backed storage,
+// wiring into app.whenReady()).
+//
+// Scope is UI-only: the local Hermes backend is loopback-bound and never
+// re-validates this token, which would be redundant defense-in-depth against
+// an attacker who cannot reach a loopback port anyway. The real security
+// boundary against internet abuse is server-side, at ALTA's relay via
+// oauth2-proxy's aud/iss check — out of scope here (see cowork.yml in the
+// infra-server repo for the pattern already running for a sibling app).
+// ---------------------------------------------------------------------------
+
+function _entraSessionStorePath() {
+  return path.join(app.getPath('userData'), 'entra-oauth-session.json')
+}
+
+// The electron-coupled half of the Entra session store: safeStorage
+// encryption plus the userData file. entra-token-store.ts owns the
+// serialization/parse round trip so it can be tested without an Electron
+// runtime — mirrors _nativeTokenStoreIo() above.
+function _entraTokenStoreIo(): EntraTokenStoreIo {
+  return {
+    encrypt: encryptDesktopSecret,
+    decrypt: decryptDesktopSecret,
+    readStoreText: () => fs.readFileSync(_entraSessionStorePath(), 'utf8'),
+    writeStoreText: (text: string) => {
+      fs.mkdirSync(path.dirname(_entraSessionStorePath()), { recursive: true })
+      fs.writeFileSync(_entraSessionStorePath(), text, { mode: 0o600 })
+    },
+    rememberLog
+  }
+}
+
+// The signed-in ALTA user's identity, once the login gate has passed. null
+// before the gate runs and if it somehow fails without quitting the app.
+let _entraIdentity: EntraIdentity | null = null
+
+/**
+ * The signed-in ALTA user's identity (email/oid), once the Entra ID login
+ * gate has passed. Exposed so a FUTURE ALTA-relay HTTP client can attach it
+ * as a header for server-side usage tracking — see the follow-up beads issue
+ * filed alongside this gate (depends on the ALTA server epic, alta-ai-9mv).
+ * No relay client exists yet; this accessor is groundwork only.
+ */
+function getEntraIdentity(): EntraIdentity | null {
+  return _entraIdentity
+}
+
+// Minimal application/x-www-form-urlencoded POST, dedicated to the Entra ID
+// token endpoint. NOT a reuse of fetchJson()/postJsonNoAuth(): those bake in
+// Hermes-gateway-specific concerns (X-Hermes-Session-Token, CF Access
+// headers via headersForRemoteRequest) that have no business reaching
+// login.microsoftonline.com, and the token endpoint requires a form body,
+// not JSON.
+function postFormNoAuth(url: string, formBody: Record<string, string>, opts: { timeoutMs?: number } = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const body = Buffer.from(new URLSearchParams(formBody).toString(), 'utf8')
+    const parsed = new URL(url)
+    const client = parsed.protocol === 'https:' ? https : http
+    const timeoutMs = opts.timeoutMs ?? 15_000
+
+    const req = client.request(
+      parsed,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': String(body.length)
+        }
+      },
+      res => {
+        const chunks: Buffer[] = []
+
+        res.on('error', reject)
+        res.on('data', chunk => chunks.push(chunk))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          let parsedBody: any = null
+
+          try {
+            parsedBody = text ? JSON.parse(text) : null
+          } catch {
+            reject(new Error(`Invalid JSON from ${url}: ${text.slice(0, 200)}`))
+
+            return
+          }
+
+          if ((res.statusCode || 500) >= 400) {
+            const desc = parsedBody?.error_description || parsedBody?.error || res.statusMessage
+
+            reject(new Error(`Entra token endpoint returned ${res.statusCode}: ${desc}`))
+
+            return
+          }
+
+          resolve(parsedBody)
+        })
+      }
+    )
+
+    req.on('error', reject)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Timed out contacting ${url} after ${timeoutMs}ms`))
+    })
+    req.write(body)
+    req.end()
+  })
+}
+
+// Silent (no browser) refresh of a stored Entra session via its refresh
+// token. Persists the refreshed session before returning it. Throws (and
+// leaves the stored session untouched) on any failure — the caller falls
+// back to the interactive login rather than quitting on a transient network
+// blip.
+async function refreshEntraSession(stored: EntraSession, io: EntraTokenStoreIo): Promise<EntraSession> {
+  const body = buildRefreshRequestBody({ clientId: ENTRA_CLIENT_ID, refreshToken: stored.refreshToken })
+  const tokenBody = await postFormNoAuth(entraTokenEndpoint(ENTRA_TENANT_ID), body, { timeoutMs: 15_000 })
+  const refreshed = parseEntraTokenResponse(tokenBody, Math.floor(Date.now() / 1000))
+
+  persistEntraSession(refreshed, io)
+
+  return refreshed
+}
+
+/**
+ * Ensure a valid Entra ID session before the app is usable. Returns true
+ * once `_entraIdentity` is populated from an existing, refreshed, or freshly
+ * completed interactive login. Returns false when the user must NOT proceed
+ * (login failed, was cancelled, or the exchange errored) — the caller MUST
+ * NOT create a window in that case; see the app.whenReady() wiring below.
+ */
+async function ensureEntraLogin(): Promise<boolean> {
+  const io = _entraTokenStoreIo()
+  const stored = loadEntraSession(io)
+  const nowSeconds = Math.floor(Date.now() / 1000)
+
+  if (stored && !entraTokenNeedsRefresh(stored, nowSeconds)) {
+    try {
+      _entraIdentity = decodeIdTokenClaims(stored.idToken)
+
+      return true
+    } catch (error) {
+      rememberLog(
+        `[entra-login] stored session had an undecodable identity, falling back to interactive login: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
+  } else if (stored && stored.refreshToken) {
+    try {
+      const refreshed = await refreshEntraSession(stored, io)
+
+      _entraIdentity = decodeIdTokenClaims(refreshed.idToken)
+
+      return true
+    } catch (error) {
+      rememberLog(
+        `[entra-login] silent refresh failed, falling back to interactive login: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
+  }
+
+  try {
+    const { session, identity } = await runEntraLogin({
+      tenantId: ENTRA_TENANT_ID,
+      clientId: ENTRA_CLIENT_ID,
+      openExternal: url => shell.openExternal(url),
+      postForm: (url, body, postOpts) => postFormNoAuth(url, body, postOpts),
+      rememberLog
+    })
+
+    persistEntraSession(session, io)
+    _entraIdentity = identity
+
+    return true
+  } catch (error) {
+    rememberLog(
+      `[entra-login] mandatory Microsoft Entra ID login failed or was cancelled: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -18233,7 +18452,7 @@ app.on('open-url', (event, url) => {
   handleDeepLink(url)
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Warm the login-shell PATH resolution immediately so it usually completes
   // before the backend start path awaits the same single-flight promise.
   void ensureLoginShellPath()
@@ -18301,6 +18520,20 @@ app.whenReady().then(() => {
     screen.on('display-metrics-changed', reposition)
 
     screen.on('display-removed', reposition)
+  }
+
+  // Mandatory ALTA login gate: no window is created until a valid Microsoft
+  // Entra ID session exists, refreshed if needed, or a fresh interactive
+  // login completes. Must run before createWindow() — that's the whole point
+  // of this gate. On any failure/cancellation we quit rather than falling
+  // through to an unauthenticated window.
+  const entraLoginOk = await ensureEntraLogin()
+
+  if (!entraLoginOk) {
+    rememberLog('[entra-login] quitting: mandatory Microsoft Entra ID login did not complete')
+    app.quit()
+
+    return
   }
 
   // A hard crash can interrupt the in-memory restore loop after exact remote
