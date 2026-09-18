@@ -438,7 +438,7 @@ def _force_alta_if_byok_disabled(provider: str) -> str:
         return provider
     from hermes_cli.model_catalog import get_catalog
 
-    if not get_catalog().get("alta"):
+    if not get_catalog().get("providers", {}).get("alta"):
         return provider
     logger.info(
         "HERMES_DISABLE_BYOK=1: forcing model provider %r -> 'alta' (BYOK providers are disabled on this build)",

@@ -1961,7 +1961,7 @@ class TestByokDisabledForcesAlta:
     def test_stale_configured_provider_is_forced_to_alta(self, monkeypatch):
         monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
         self._set_config_provider(monkeypatch, "opencode-zen")
-        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"alta": {"models": []}})
+        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"providers": {"alta": {"models": []}}})
 
         assert rp.resolve_requested_provider() == "alta"
 
@@ -1970,7 +1970,7 @@ class TestByokDisabledForcesAlta:
         this is the function every real call site (gateway, TUI, ACP) actually calls."""
         monkeypatch.setenv("HERMES_DISABLE_BYOK", "1")
         self._set_config_provider(monkeypatch, "opencode-zen")
-        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"alta": {"models": []}})
+        monkeypatch.setattr("hermes_cli.model_catalog.get_catalog", lambda **_k: {"providers": {"alta": {"models": []}}})
         monkeypatch.setattr(
             rp,
             "_resolve_alta_runtime",
