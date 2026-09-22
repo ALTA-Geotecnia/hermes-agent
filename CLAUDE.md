@@ -2,6 +2,41 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
+## ⚠️ Este repositório é um FORK PRIVADO DE USO INTERNO
+
+`ALTA-Geotecnia/hermes-agent`, fork de `NousResearch/hermes-agent`. O código daqui
+é da ALTA e **não se destina ao upstream**. Nada de PR, issue, comentário ou push
+para `NousResearch/*`.
+
+**O erro concreto que já aconteceu (22/09/2026):** `gh pr create` executado dentro
+deste diretório resolve o repositório-pai por padrão e abriu um PR contra o
+upstream público. Ficou visível lá até ser fechado.
+
+Regras, em ordem de quando aplicar:
+
+1. **PR e issue sempre com `--repo` explícito:**
+   ```sh
+   gh pr create --repo ALTA-Geotecnia/hermes-agent --base main --head <branch> ...
+   ```
+   Nunca `gh pr create` sem `--repo`, mesmo com o default configurado — o default
+   vive em `.git/config` e não sobrevive a um clone novo.
+
+2. **Antes de qualquer comando `gh` que escreva**, confirme o alvo:
+   ```sh
+   gh repo view --json nameWithOwner -q .nameWithOwner   # tem que dizer ALTA-Geotecnia
+   ```
+
+3. **O remote `upstream` é somente leitura.** Serve para `git fetch upstream` e
+   comparar com o fork; o push URL dele está propositalmente inválido. Se algum
+   comando reclamar de `NAO-EMPURRE-PARA-O-UPSTREAM`, o comando é que está errado,
+   não a configuração.
+
+4. Num clone novo, restaure as duas travas locais:
+   ```sh
+   gh repo set-default ALTA-Geotecnia/hermes-agent
+   git remote set-url --push upstream NAO-EMPURRE-PARA-O-UPSTREAM
+   ```
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
