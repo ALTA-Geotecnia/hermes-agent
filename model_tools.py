@@ -332,7 +332,30 @@ def _select_tool_names(enabled_toolsets: Optional[List[str]], disabled_toolsets:
     # disabled toolset are strictly stripped out. See issue #17309.
     if disabled_toolsets:
         _apply_toolset_selection(tools, disabled_toolsets, quiet_mode, disable=True)
+    # Individual names come off last of all: a toolset is an all-or-nothing bundle, so this is the
+    # only way to drop one tool while keeping its siblings (ALTA fork drops skill_manage but keeps
+    # skill_view / skills_list). Applied here rather than at a call site so it holds for every
+    # consumer at once — the agent's schema list and the valid_tool_names derived from it, the
+    # tool_search bridge's uncollapsed catalog, and the background-review fork.
+    tools -= _config_disabled_tool_names()
     return tools
+
+
+def _config_disabled_tool_names() -> set:
+    """``agent.disabled_tools`` as a set of tool names.
+
+    Never raises and never returns anything on a malformed value: an unreadable config costs
+    tokens, an emptied tool list costs the whole session. Re-read per call is safe — the
+    definitions cache keys on the config file's stat signature (see _tool_defs_cache_key).
+    """
+    try:
+        from hermes_cli.config import load_config_readonly
+        names = (load_config_readonly().get("agent") or {}).get("disabled_tools")
+    except Exception:
+        return set()
+    if not isinstance(names, list):
+        return set()
+    return {str(name).strip() for name in names if str(name).strip()}
 
 
 # --- Dynamic schema rewrites -------------------------------------------------

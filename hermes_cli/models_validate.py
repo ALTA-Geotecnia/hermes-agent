@@ -505,6 +505,22 @@ def _for(*providers: str) -> Callable[[_Request], bool]:
     return lambda req: req.normalized in providers
 
 
+def _reject_non_chat_alta_model(req: _Request) -> Optional[dict[str, Any]]:
+    """Close the one door the pickers cannot: a hand-typed ``/model <id>``.
+
+    The pickers already hide non-chat models (hermes_cli/inventory.py), but nothing stopped a
+    typed id — the ALTA branch falls through to _validate_live_listing, which asks the relay's
+    /v1/models and accepts anything it lists, memory model included. None = not ours to judge.
+    """
+    from hermes_cli.model_catalog import non_selectable_model_ids
+    if req.lookup not in non_selectable_model_ids("alta"):
+        return None
+    return _reject(
+        f"'{req.lookup}' is reserved for background memory review and cannot be used for chat. "
+        "Pick a model from /model."
+    )
+
+
 # (gate, branch): the branch runs when the gate passes; the first non-None verdict wins. ORDER IS
 # BEHAVIOR: moa → whitespace → OpenRouter preset parse → LM Studio → Ollama native → custom →
 # codex/xai static → MiniMax → Anthropic native → Anthropic Messages → live listing → Bedrock →
@@ -512,6 +528,7 @@ def _for(*providers: str) -> Callable[[_Request], bool]:
 _LADDER: tuple[tuple[Callable[[_Request], bool], Callable[[_Request], Optional[dict[str, Any]]]], ...] = (
     (_for("moa"), _validate_moa),
     (lambda req: True, _reject_whitespace),
+    (_for("alta"), _reject_non_chat_alta_model),
     (_for("openrouter"), _parse_openrouter_preset),
     (_for("lmstudio"), _validate_lmstudio),
     (lambda req: True, _validate_ollama_native),

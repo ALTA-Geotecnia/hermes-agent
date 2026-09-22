@@ -225,12 +225,20 @@ SESSION_SEARCH_GUIDANCE = (
 # patch-it coaching that used to open this block duplicated the ## Skills section (which teaches both "offer
 # to save as a skill" and "fix it with skill_manage(action='patch')") and skill_manage's own schema. Only
 # the compaction-pruning contract lives here — nothing else teaches it.
-SKILLS_GUIDANCE = (
-    "When you work out a non-trivial workflow, record it with skill_manage for future reuse.\n\n"
+# Split out of SKILLS_GUIDANCE (ALTA fork): this half is about RELOADING a pruned skill with
+# skill_view, so it stays correct — and necessary — in a read-only catalog where skill_manage is
+# not offered. system_prompt.py gates it on skill_view; only the sentence above it needs
+# skill_manage. SKILLS_GUIDANCE still embeds it verbatim, so nothing upstream loses the contract.
+SKILL_PRUNED_SAFETY_RULE = (
     "## Skill Safety Rule\n"
     "A skill placeholder containing `[SKILL_PRUNED]` lost its content in context compression and is inaccessible — "
     "reload it with skill_view(name='...') before acting on anything that depends on it. After reloading, ignore any "
     "remaining `[SKILL_PRUNED]` markers for that same skill; they are historical artifacts of earlier compactions."
+)
+
+SKILLS_GUIDANCE = (
+    "When you work out a non-trivial workflow, record it with skill_manage for future reuse.\n\n"
+    + SKILL_PRUNED_SAFETY_RULE
 )
 
 KANBAN_GUIDANCE = (
@@ -1313,6 +1321,13 @@ def _render_skills_index(
     ) if demoted else ""
     # Don't name web_search when the session has no web tools (dangling reference).
     _basic_tools = "terminal" if available_tools is not None and "web_search" not in available_tools else "web_search or terminal"
+    # Same rule for the authoring coaching: without skill_manage it teaches a tool the model cannot
+    # call and invites it to promise a save it will then fail to perform. None = caller did not say.
+    _authoring = (
+        "If a skill has issues, fix it with skill_manage(action='patch').\n"
+        "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
+        "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
+    ) if available_tools is None or "skill_manage" in available_tools else ""
     index_lines = []
     for category in sorted(skills_by_category):
         entries = skills_by_category[category]
@@ -1337,9 +1352,7 @@ def _render_skills_index(
         "Skills also encode the user's preferred approach, conventions, and quality standards for tasks like "
         "code review, planning, and testing — load them even for tasks you already know how to do, because "
         "the skill defines how it should be done here.\n"
-        "If a skill has issues, fix it with skill_manage(action='patch').\n"
-        "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
-        "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
+        + _authoring +
         "\n"
         "<available_skills>\n"
         + "\n".join(index_lines) + "\n"

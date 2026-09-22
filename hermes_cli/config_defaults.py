@@ -244,6 +244,13 @@ DEFAULT_CONFIG = {
         # mouse/keyboard/screen control via cua-driver (broader surface than browser — controls
         # any app on the desktop, not a sandboxed browser).
         "disabled_toolsets": ["browser", "tts", "image_gen", "computer_use"],
+        # Individual tool names subtracted from every selection, after disabled_toolsets.
+        # ALTA fork: skill_manage. The skill catalog is curated on the server and mirrored
+        # read-only into skills/_alta/, so a client-side writer has nothing legitimate to add —
+        # it only spends ~600 tokens/turn and invites the model to author skills nobody reviews.
+        # A toolset can't express this: "skills" bundles skill_view and skills_list, which ALTA
+        # needs, together with skill_manage.
+        "disabled_tools": ["skill_manage"],
         # Model name (any reasonable spelling) -> effort level; overrides agent.reasoning_effort
         # when the current model matches. Edit in config.yaml (no CLI support: dots in keys).
         "reasoning_overrides": {},
@@ -752,7 +759,15 @@ DEFAULT_CONFIG = {
         # conversation's reasoning config verbatim so its request bytes keep the parent's warm
         # prompt-cache prefix (#30532). Set provider/model below to route the review to another model
         # if you want a different effort level; a one-time warning says so when the key is set.
-        "background_review": {"enabled": True, **_aux(120), "max_input_tokens": 600000},
+        # ALTA fork: routed to a dedicated catalog model instead of "auto". Two reasons, both
+        # cost. (1) Unrouted, this fork replays the WHOLE conversation on the conversation model
+        # after every nudge interval; routed to a different model it replays the bounded digest
+        # (_digest_history) instead. (2) A catalog id of its own makes the spend separable on the
+        # server, so the question "is per-user memory worth what it costs?" has an answer.
+        # provider must stay concrete: _resolve_review_runtime reads "auto" as "not routed" and
+        # falls back to the parent runtime. Resolution failure is non-fatal (logs, uses parent).
+        "background_review": {"enabled": True, **_aux(120, provider="alta", model="alta-memory"),
+                              "max_input_tokens": 600000},
         # No reasoning_effort on MoA blocks by design — configured PER SLOT in the preset
         # (moa.presets.<name>.reference_models[].reasoning_effort / aggregator.reasoning_effort).
         "moa_reference": _aux(900, reasoning_effort=False),
@@ -1368,6 +1383,11 @@ DEFAULT_CONFIG = {
         "auto_load": [],
         # Substitute ${HERMES_SKILL_DIR} / ${HERMES_SESSION_ID} in SKILL.md content.
         "template_vars": True,
+        # Tool iterations between "consider saving this as a skill" nudges. ALTA fork: 0 = off.
+        # Upstream leaves this key absent and agent/agent_init.py falls back to 10, so the key
+        # must stay present here. It also gates the SKILL half of the post-turn background review
+        # fork (agent/turn_finalizer.py) — with 0, that fork only ever runs for memory.
+        "creation_nudge_interval": 0,
         # Pre-execute !`cmd` snippets in SKILL.md, inlining stdout (dates, git state...). Off:
         # skill-author content would run on the host unapproved — trusted sources only.
         "inline_shell": False,
@@ -1397,7 +1417,15 @@ DEFAULT_CONFIG = {
     # overlaps via a forked aux-model agent. Inactivity-triggered from session start, no cron
     # daemon. `hermes curator status` shows the last run.
     "curator": {
-        "enabled": True,
+        # ALTA fork: off. PROTECTED_BUILTIN_SKILLS is an empty set and prune_builtins defaults to
+        # true, so a bundled skill nobody used for archive_after_days (docx, pdf...) is moved out
+        # of skills/ AND written to .curator_suppressed, which makes `hermes update` skip it on
+        # re-seed. Nothing brings it back automatically — an archived skill leaves curated_report()
+        # with it, so its clock never advances again — and the only recovery is `hermes curator
+        # restore` in a terminal, which an ALTA end user has no way to discover. With automatic
+        # skill creation off (skills.creation_nudge_interval) the local catalog stops growing
+        # anyway, so there is nothing legitimate left to prune.
+        "enabled": False,
         "interval_hours": 24 * 7,  # hours between runs
         "min_idle_hours": 2,  # only run after the agent has been idle this long
         "stale_after_days": 14,  # mark "stale" after this many unused days
