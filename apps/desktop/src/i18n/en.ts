@@ -4159,6 +4159,8 @@ export const en: Translations = {
       errorSignInFreeTier: 'Sign in with a Nous account',
       errorOauthExpired: provider =>
         `Your ${provider} sign-in has expired or was revoked. Sign in again to keep chatting.`,
+      errorCatalogRefresh: provider =>
+        `${provider}'s model catalog may have changed. Use Refresh Models to see the currently available models and reasoning levels, then send your message again.`,
       errorOpenLogs: 'Open logs',
       errorOpenLogsFailed: 'Could not open the logs folder',
       errorOpenDesktopLogs: 'Open Desktop logs',

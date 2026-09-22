@@ -1,17 +1,16 @@
 """Remote model catalog fetcher.
 
-``get_catalog()`` returns the parsed manifest: in-process cache (TTL) → disk cache at
-``~/.hermes/cache/model_catalog.json`` → master URL fetch; any fetch failure keeps the stale copy
-(or ``{}``). ``get_curated_openrouter_models()`` / ``get_curated_nous_models()`` are thin accessors
-whose callers fall back to the in-repo lists on ``None``.
+``get_catalog()`` keeps one manifest in-process. A new process refreshes it from the master URL
+before using the disk cache, and callers can explicitly force the same refresh (the model picker
+Refresh action does this). If the network is unavailable, the last valid disk copy is retained.
+``get_curated_openrouter_models()`` / ``get_curated_nous_models()`` are thin accessors whose
+callers fall back to the in-repo lists on ``None``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -36,7 +35,7 @@ SUPPORTED_SCHEMA_VERSION = 1
 
 _HERMES_USER_AGENT = f"hermes-cli/{_HERMES_VERSION}"
 
-# In-process cache, invalidated against the disk file's path + mtime and TTL. The path matters:
+# In-process cache, invalidated against the disk file's path + mtime. The path matters:
 # under a multiplexed gateway each profile has its own ``<home>/cache/model_catalog.json``, and
 # mtime alone cannot tell two profiles' files apart.
 _catalog_cache: dict[str, Any] | None = None
@@ -168,35 +167,6 @@ def _write_disk_cache(data: dict[str, Any]) -> None:
         logger.info("model catalog cache write failed: %s", exc)
 
 
-# Stale-while-revalidate: at most one background manifest refresh in flight per process. The
-# refreshed manifest lands on disk; the NEXT get_catalog() call picks it up via the mtime check.
-_catalog_swr_lock = threading.Lock()
-_catalog_swr_inflight = False
-
-
-def _spawn_catalog_swr_refresh(url: str) -> None:
-    """Refresh the catalog manifest off-thread (fire-and-forget, deduped)."""
-    global _catalog_swr_inflight
-    with _catalog_swr_lock:
-        if _catalog_swr_inflight:
-            return
-        _catalog_swr_inflight = True
-
-    def _refresh() -> None:
-        global _catalog_swr_inflight
-        try:
-            fetched = _fetch_manifest_with_fallback(url, DEFAULT_FETCH_TIMEOUT)
-            if fetched is not None:
-                _write_disk_cache(fetched)
-        except Exception:
-            logger.debug("catalog SWR refresh failed", exc_info=True)
-        finally:
-            with _catalog_swr_lock:
-                _catalog_swr_inflight = False
-
-    threading.Thread(target=_refresh, daemon=True, name="model-catalog-swr").start()
-
-
 def _remember(data: dict[str, Any], mtime: float) -> dict[str, Any]:
     global _catalog_cache, _catalog_cache_source_mtime, _catalog_cache_source_path
     _catalog_cache, _catalog_cache_source_mtime = data, mtime
@@ -217,21 +187,15 @@ def get_catalog(*, force_refresh: bool = False) -> dict[str, Any]:
     cfg = _load_catalog_config()
     if not cfg["enabled"]:
         return {}
-    ttl_seconds = max(0.0, cfg["ttl_hours"] * 3600.0)
     disk_data, disk_mtime = _read_disk_cache()
-    now = time.time()
-    disk_fresh = disk_data is not None and (now - disk_mtime) < ttl_seconds
 
-    if not force_refresh and disk_data is not None:
-        cached = _in_process_catalog()
-        if disk_fresh and cached is not None and disk_mtime == _catalog_cache_source_mtime:
+    # The process-local copy is authoritative for its lifetime. This prevents a picker open or a
+    # TTL timer from silently changing the models underneath a running session. A process restart,
+    # an explicit Refresh action, or an externally changed cache file takes the fetch path below.
+    cached = _in_process_catalog()
+    if not force_refresh and cached is not None:
+        if disk_data is None or disk_mtime == _catalog_cache_source_mtime:
             return cached
-        if not disk_fresh:
-            # Stale-while-revalidate: serve the expired disk copy now and refresh off-thread so the
-            # /model picker (which calls this on every open) never blocks on the manifest fetch.
-            # Only a cold cache (no disk copy at all) still blocks.
-            _spawn_catalog_swr_refresh(cfg["url"])
-        return _remember(disk_data, disk_mtime)
 
     fetched = _fetch_manifest_with_fallback(cfg["url"], DEFAULT_FETCH_TIMEOUT)
     if fetched is not None:
@@ -239,14 +203,18 @@ def get_catalog(*, force_refresh: bool = False) -> dict[str, Any]:
         new_disk_data, new_mtime = _read_disk_cache()
         if new_disk_data is not None:
             return _remember(new_disk_data, new_mtime)
-        return _remember(fetched, now)
+        return _remember(fetched, disk_mtime)
     if disk_data is not None:
         return _remember(disk_data, disk_mtime)
     return {}
 
 
 def refresh_interval_seconds() -> float:
-    """Return the configured catalog TTL in seconds (the gateway poll cadence)."""
+    """Return the configured provider-catalog TTL in seconds.
+
+    The ALTA manifest itself is refreshed only at process start or by an explicit refresh; this
+    value remains for the provider model-list caches that still use a TTL.
+    """
     return max(60.0, _load_catalog_config()["ttl_hours"] * 3600.0)
 
 

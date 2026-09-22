@@ -45,6 +45,10 @@ export function errorCardText(
   if ('code' in key) {
     const copy = thread.errorCodes[key.code]
 
+    if (surface?.catalogRefresh) {
+      return { body: thread.errorCatalogRefresh(provider), title: render(copy.title, provider) }
+    }
+
     // A free-tier refusal arrives with the backend's own sentence (the wait, the
     // model, the way forward); the table body is only the fallback for an older backend.
     return {

@@ -50,6 +50,16 @@ describe('parseErrorSurface', () => {
     // Absent identity yields no keys, not empty strings.
     expect(parseErrorSurface({ layer: 'provider', code: 'x', retryable: true })?.provider).toBeUndefined()
   })
+
+  it('carries the catalog refresh instruction when the backend requests it', () => {
+    expect(parseErrorSurface({
+      layer: 'provider',
+      code: 'model_not_found',
+      retryable: false,
+      provider: 'alta',
+      catalog_refresh: true
+    })?.catalogRefresh).toBe(true)
+  })
 })
 
 describe('formatErrorDiagnostics', () => {
@@ -176,5 +186,22 @@ describe('free-tier refusals', () => {
       expect(text).not.toMatch(/free (service|model|tier) is (off|switched off|unavailable|down)/)
       expect(text).not.toMatch(/anonymous|guest|credential|token|rate limit/)
     }
+  })
+})
+
+describe('catalog refresh guidance', () => {
+  it('replaces stale ALTA model errors with the refresh instruction', () => {
+    const surface = parseErrorSurface({
+      layer: 'provider',
+      code: 'model_not_found',
+      provider: 'ALTA',
+      retryable: false,
+      catalog_refresh: true
+    })!
+
+    const copy = errorCardText(en.assistant.thread, surface)
+    expect(copy.title).toBe(en.assistant.thread.errorCodes.model_not_found.title)
+    expect(copy.body).toContain('Refresh Models')
+    expect(copy.body).toContain('reasoning levels')
   })
 })

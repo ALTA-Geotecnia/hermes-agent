@@ -87,7 +87,7 @@ def build_models_payload(
     # selectable models (hermes-agent-pqy) — short-circuit before any pool/credential/BYOK provider is
     # even looked up, so a leftover BYOK config from before this build (or an ambient OAuth credential
     # like copilot/anthropic) never resurfaces in the picker.
-    alta_row = _alta_provider_row(ctx.current_provider)
+    alta_row = _alta_provider_row(ctx.current_provider, force_refresh=refresh)
     if alta_row is not None:
         return {"providers": [alta_row], "model": ctx.current_model, "provider": ctx.current_provider}
 
@@ -751,7 +751,7 @@ def _prewarm_pricing_async(
         return thread
 
 
-def _alta_provider_row(current_provider: str = "") -> dict | None:
+def _alta_provider_row(current_provider: str = "", *, force_refresh: bool = False) -> dict | None:
     """The ALTA Hermes Server relay row — injected unconditionally in the corporate desktop build,
     never gated by credential-pool authentication: the Entra ID login gate is mandatory app-wide
     before the Python backend even starts (apps/desktop/electron/main.ts), so there is no separate
@@ -763,7 +763,8 @@ def _alta_provider_row(current_provider: str = "") -> dict | None:
     if not byok_disabled():
         return None
     from hermes_cli import model_catalog
-    block = (model_catalog.get_catalog() or {}).get("providers", {}).get("alta")
+    catalog = model_catalog.get_catalog(force_refresh=True) if force_refresh else model_catalog.get_catalog()
+    block = (catalog or {}).get("providers", {}).get("alta")
     if not isinstance(block, dict):
         return None
     entries = [m for m in (block.get("models") or []) if isinstance(m, dict) and str(m.get("id") or "").strip()]

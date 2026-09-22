@@ -72,6 +72,24 @@ def test_model_not_found_chat_text_points_at_model_picker_not_http():
     assert build_error_surface_from_result(result, provider="openrouter")["retryable"] is False
 
 
+def test_alta_model_not_found_chat_text_requests_catalog_refresh():
+    result = _nonretryable(404, "HTTP 404: The model `alta-glm` does not exist", provider="alta", model="alta-glm")
+
+    text = result["final_response"]
+    assert "Refresh Models" in text
+    assert "reasoning levels" in text
+    assert build_error_surface_from_result(result, provider="alta", model="alta-glm")["catalog_refresh"] is True
+
+
+def test_alta_unavailable_reasoning_effort_chat_text_requests_catalog_refresh():
+    result = _nonretryable(
+        400, "HTTP 400: unsupported reasoning_effort: high", provider="alta", model="alta-glm",
+    )
+
+    assert result["failure_reason"] == "format_error"
+    assert "Refresh Models" in result["final_response"]
+
+
 def test_api_key_rejection_chat_text_names_the_fix_and_the_provider_label():
     result = _nonretryable(401, "HTTP 401: Invalid API key provided")
     text = result["final_response"]

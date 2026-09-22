@@ -92,6 +92,26 @@ def test_result_provider_default_for_classified_reasons():
         assert surface["code"] == reason
 
 
+def test_alta_stale_catalog_rejections_request_a_catalog_refresh():
+    model_missing = build_error_surface_from_result(
+        _failed_result("model_not_found", error="the requested model does not exist"), provider="alta",
+    )
+    assert model_missing["catalog_refresh"] is True
+
+    effort_missing = build_error_surface_from_result(
+        _failed_result("format_error", error="unsupported reasoning_effort: high"), provider="alta",
+    )
+    assert effort_missing["catalog_refresh"] is True
+
+    # The hint is specific to the managed ALTA catalog, not a generic provider 400.
+    assert "catalog_refresh" not in build_error_surface_from_result(
+        _failed_result("format_error", error="unsupported reasoning_effort: high"), provider="openrouter",
+    )
+    assert "catalog_refresh" not in build_error_surface_from_result(
+        _failed_result("format_error", error="invalid request body"), provider="alta",
+    )
+
+
 def test_result_non_retryable_reasons():
     for reason in (
         "auth",

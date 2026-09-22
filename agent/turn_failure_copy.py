@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, NamedTuple, Optional, Tuple
 
 from agent.error_classifier import FailoverReason
+from agent.error_surface import CATALOG_REFRESH_HINT, catalog_refresh_required
 from hermes_constants import display_hermes_home
 
 # Failure codes minted by loop sites that are not provider verdicts (see module docstring).
@@ -289,6 +290,8 @@ def nonretryable_copy(
         if prefix_suggestion else ""
     )
     body = template.format(label=label, model=model, home=display_hermes_home(), prefix_hint=prefix_hint)
+    if catalog_refresh_required(provider, classified.reason, summary):
+        body = f"{body} {CATALOG_REFRESH_HINT}"
     return f"{body}\n\nProvider said: {summary}"
 
 

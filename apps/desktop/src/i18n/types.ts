@@ -3565,6 +3565,8 @@ export interface Translations {
       /** Explains WHY the turn failed for an OAuth 401 — the raw body
        *  ("HTTP 401: User not found.") doesn't say "sign in again". */
       errorOauthExpired: (provider: string) => string
+      /** ALTA's model catalog may have changed while this client was running. */
+      errorCatalogRefresh: (provider: string) => string
       errorOpenLogs: string
       errorOpenLogsFailed: string
       errorOpenDesktopLogs: string

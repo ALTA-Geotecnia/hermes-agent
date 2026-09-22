@@ -84,6 +84,8 @@ export interface ErrorSurface {
   /** Free-tier codes: the backend's own plain sentence for this failure (it
    *  names the wait, the model, the way forward). Shown as the card body. */
   message?: string
+  /** The server catalog may have changed; refresh models before retrying. */
+  catalogRefresh?: boolean
 }
 
 /** Validate a wire payload into an ErrorSurface, or null when absent/garbled. */
@@ -102,6 +104,7 @@ export function parseErrorSurface(value: unknown): ErrorSurface | null {
     provider?: unknown
     provider_label?: unknown
     retryable?: unknown
+    catalog_refresh?: unknown
   }
 
   const layer = typeof raw.layer === 'string' ? (raw.layer as ErrorSurfaceLayer) : null
@@ -119,7 +122,8 @@ export function parseErrorSurface(value: unknown): ErrorSurface | null {
     ...(raw.auth_kind === 'oauth' || raw.auth_kind === 'api_key' ? { authKind: raw.auth_kind } : {}),
     ...(typeof raw.provider_label === 'string' && raw.provider_label ? { providerLabel: raw.provider_label } : {}),
     ...(typeof raw.api_key_env === 'string' && raw.api_key_env ? { apiKeyEnv: raw.api_key_env } : {}),
-    ...(typeof raw.message === 'string' && raw.message.trim() ? { message: raw.message.trim() } : {})
+    ...(typeof raw.message === 'string' && raw.message.trim() ? { message: raw.message.trim() } : {}),
+    ...(raw.catalog_refresh === true ? { catalogRefresh: true } : {})
   }
 }
 

@@ -12,6 +12,7 @@ import json
 import os
 import threading
 import time
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -162,11 +163,14 @@ def test_model_catalog_in_process_copy_is_bound_to_its_cache_file(homes, monkeyp
     _write_manifest(a, "vendor/a-model", same_mtime)
     _write_manifest(b, "vendor/b-model", same_mtime)
     mc.reset_cache()
-    with _Scoped(a):
-        assert [m["id"] for m in mc.get_catalog()["providers"]["openrouter"]["models"]] == ["vendor/a-model"]
-    with _Scoped(b):
-        assert [m["id"] for m in mc.get_catalog()["providers"]["openrouter"]["models"]] == ["vendor/b-model"]
-        assert mc.get_default_model_from_cache("openrouter") == "vendor/b-model"
+    # A cold process attempts the server refresh first; the offline fallback must still remain
+    # bound to the active profile's disk cache.
+    with patch.object(mc, "_fetch_manifest_with_fallback", return_value=None):
+        with _Scoped(a):
+            assert [m["id"] for m in mc.get_catalog()["providers"]["openrouter"]["models"]] == ["vendor/a-model"]
+        with _Scoped(b):
+            assert [m["id"] for m in mc.get_catalog()["providers"]["openrouter"]["models"]] == ["vendor/b-model"]
+            assert mc.get_default_model_from_cache("openrouter") == "vendor/b-model"
 
 
 def test_openrouter_curated_list_is_per_profile(homes, monkeypatch):

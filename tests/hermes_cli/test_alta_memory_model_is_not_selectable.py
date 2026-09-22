@@ -52,6 +52,19 @@ def test_memory_model_is_absent_from_the_picker_row(alta_catalog):
     assert row["total_models"] == 1
 
 
+def test_refresh_forces_a_new_alta_catalog_read(alta_catalog, monkeypatch):
+    calls = []
+
+    def fake_get_catalog(**kwargs):
+        calls.append(kwargs)
+        return CATALOG
+
+    monkeypatch.setattr(model_catalog, "get_catalog", fake_get_catalog)
+
+    assert inventory._alta_provider_row("alta", force_refresh=True)["models"] == ["glmmodel"]
+    assert calls == [{"force_refresh": True}]
+
+
 def test_entries_without_a_role_stay_selectable(monkeypatch):
     """Rollout order: the field reaches the catalog before every client reads it,
     and an older server does not publish it at all. Absent means chat."""

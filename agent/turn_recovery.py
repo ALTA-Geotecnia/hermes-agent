@@ -20,6 +20,7 @@ from agent.conversation_compression import COMPRESSION_RETRY_CONTEXT_REDUCED_STA
 from agent.model_metadata import is_output_cap_error, parse_available_output_tokens_from_error
 from agent.retry_utils import is_zai_coding_overload_error, zai_coding_overload_retry_ceiling
 from agent.error_classifier import FailoverReason
+from agent.error_surface import CATALOG_REFRESH_HINT, catalog_refresh_required
 from agent.message_sanitization import (
     _looks_like_image_content_rejection, _sanitize_messages_non_ascii,
     _sanitize_messages_surrogates, _sanitize_structure_non_ascii, _sanitize_structure_surrogates,
@@ -822,9 +823,14 @@ def nonretryable_client_error_result(
             agent, classified, status_code=status_code, provider=provider, base_url=base_url, model=model
         )
     elif classified.reason == FailoverReason.model_not_found:
-        _vlines(agent, f"   💡 Model '{model}' isn't available on {_plabel}. Pick another with /model.")
+        if catalog_refresh_required(provider, classified.reason, _nonretryable_summary):
+            _vlines(agent, f"   💡 {CATALOG_REFRESH_HINT}")
+        else:
+            _vlines(agent, f"   💡 Model '{model}' isn't available on {_plabel}. Pick another with /model.")
         if _prefix_suggestion:
             _vlines(agent, f"      Did you mean '{_prefix_suggestion}'? It looks like the vendor prefix is missing.")
+    elif catalog_refresh_required(provider, classified.reason, _nonretryable_summary):
+        _vlines(agent, f"   💡 {CATALOG_REFRESH_HINT}")
     elif classified.reason not in _NONRETRYABLE_LABELS:
         _vlines(agent, f"   💡 Fix: pick another model (/model), or check `{display_hermes_home()}/logs/agent.log`.")
     # Content-policy blocks: the provider refused this prompt, so recovery is a rephrase

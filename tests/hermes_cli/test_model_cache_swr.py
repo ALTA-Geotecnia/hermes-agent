@@ -149,21 +149,21 @@ class TestProviderModelsSWR:
 
 
 class TestCatalogSWR:
-    def test_stale_disk_catalog_served_with_background_refresh(self, tmp_path, monkeypatch):
+    def test_warm_process_keeps_catalog_until_explicit_refresh(self, monkeypatch):
         import hermes_cli.model_catalog as mc
 
         manifest = {"version": 1, "providers": {"nous": {"models": [{"id": "hermes-4"}]}}}
-        monkeypatch.setattr(mc, "_catalog_cache", None)
-        monkeypatch.setattr(mc, "_catalog_cache_source_mtime", 0.0)
+        source_mtime = time.time() - 7200
+        monkeypatch.setattr(mc, "_catalog_cache", manifest)
+        monkeypatch.setattr(mc, "_catalog_cache_source_mtime", source_mtime)
+        monkeypatch.setattr(mc, "_catalog_cache_source_path", str(mc._cache_path()))
         with patch.object(mc, "_load_catalog_config", return_value={
                  "enabled": True, "ttl_hours": 1.0, "url": "https://example/cat.json",
                  "providers": {}}), \
-             patch.object(mc, "_read_disk_cache", return_value=(manifest, time.time() - 7200)), \
-             patch.object(mc, "_spawn_catalog_swr_refresh") as spawn, \
+             patch.object(mc, "_read_disk_cache", return_value=(manifest, source_mtime)), \
              patch.object(mc, "_fetch_manifest_with_fallback") as fetch:
             out = mc.get_catalog()
-        assert out == manifest  # stale copy served without blocking
-        spawn.assert_called_once()
+        assert out == manifest  # process cache stays stable until an explicit refresh
         fetch.assert_not_called()
 
     def test_cold_cache_still_blocks_on_fetch(self, monkeypatch):
@@ -176,13 +176,11 @@ class TestCatalogSWR:
                  "enabled": True, "ttl_hours": 1.0, "url": "https://example/cat.json",
                  "providers": {}}), \
              patch.object(mc, "_read_disk_cache", return_value=(None, 0.0)), \
-             patch.object(mc, "_spawn_catalog_swr_refresh") as spawn, \
              patch.object(mc, "_write_disk_cache"), \
              patch.object(mc, "_fetch_manifest_with_fallback", return_value=manifest) as fetch:
             out = mc.get_catalog()
         assert out == manifest
         fetch.assert_called_once()
-        spawn.assert_not_called()
 
 
 class TestCorruptCacheRowDegradation:

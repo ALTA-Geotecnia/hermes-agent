@@ -75,6 +75,35 @@ _API_EXC_MODULE_PREFIXES = (
     "grpc", "requests", "aiohttp", "ssl", "socket", "urllib",
 )
 
+CATALOG_REFRESH_HINT = (
+    "The server's model catalog may have changed. Run `/model --refresh` (or use Refresh Models) "
+    "to see the available models and reasoning levels, then try again."
+)
+
+
+def catalog_refresh_required(provider: Any, reason: Any, error_text: str = "") -> bool:
+    """Whether an ALTA rejection is likely caused by a stale model catalog.
+
+    The server can legitimately remove a model or a reasoning effort while a client still has
+    the previous manifest. Keep this narrow so ordinary 400s from other providers do not receive
+    an irrelevant catalog instruction.
+    """
+    if str(provider or "").strip().lower() != "alta":
+        return False
+    reason_value = getattr(reason, "value", reason)
+    if str(reason_value or "") == "model_not_found":
+        return True
+    if str(reason_value or "") not in {"format_error", "reasoning_mandatory"}:
+        return False
+    text = str(error_text or "").lower()
+    has_effort_signal = any(
+        marker in text for marker in ("reasoning_effort", "reasoning effort", "effort level", "thinking effort")
+    )
+    has_unavailable_signal = any(
+        marker in text for marker in ("unsupported", "not supported", "unavailable", "invalid", "unknown", "not allowed")
+    )
+    return has_effort_signal and has_unavailable_signal
+
 
 def _is_custom_endpoint(provider: Optional[str]) -> bool:
     p = (provider or "").strip().lower()
@@ -173,7 +202,10 @@ def build_error_surface_from_result(result: Any, provider: str = "", model: str 
         retryable = result.get("failure_retryable")
         if not isinstance(retryable, bool):
             retryable = reason not in _NON_RETRYABLE_REASONS
-        return _surface(_result_layer(reason, error_text, provider), reason, retryable, provider, model)
+        surface = _surface(_result_layer(reason, error_text, provider), reason, retryable, provider, model)
+        if catalog_refresh_required(provider, reason, error_text):
+            surface["catalog_refresh"] = True
+        return surface
     except Exception:  # pragma: no cover — never break the error path
         logger.debug("error_surface: result classification failed", exc_info=True)
         return None

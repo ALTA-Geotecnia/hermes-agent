@@ -72,6 +72,22 @@ class TestValidation:
 
 
 class TestFetchSuccess:
+    def test_new_process_refreshes_disk_catalog_before_using_it(self, isolated_home):
+        from hermes_cli import model_catalog
+
+        old_manifest = _valid_manifest()
+        new_manifest = _valid_manifest()
+        new_manifest["updated_at"] = "2026-09-22T12:00:00Z"
+        cache = isolated_home / "cache"
+        cache.mkdir()
+        (cache / "model_catalog.json").write_text(json.dumps(old_manifest), encoding="utf-8")
+
+        with patch.object(model_catalog, "_fetch_manifest_with_fallback", return_value=new_manifest) as fetch:
+            result = model_catalog.get_catalog()
+
+        assert result == new_manifest
+        fetch.assert_called_once()
+
     def test_fetch_and_cache_writes_disk(self, isolated_home):
         from hermes_cli import model_catalog
         manifest = _valid_manifest()

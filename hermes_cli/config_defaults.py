@@ -1912,9 +1912,9 @@ DEFAULT_CONFIG = {
     "model_catalog": {
         "enabled": True,
         "url": "https://geo-decision.com/intranet/hermes-server/api/v1/model-catalog.json",
-        # Disk cache TTL in minutes. The gateway refreshes in the background on this cadence; the
-        # CLI refetches on the next /model or `hermes model` once the cache is older. Network
-        # failures silently use the stale cache. Legacy `ttl_hours` is honoured if set.
+        # Legacy cadence retained for provider catalog helpers. The model manifest is refreshed only
+        # when a process starts or when the user explicitly chooses Refresh Models. Network failures
+        # silently use the stale cache. Legacy `ttl_hours` is honoured if set.
         "ttl_minutes": 20,
         # Per-provider override URLs for self-hosted curation lists using the same schema, e.g.
         # providers: {openrouter: {url: https://example.com/my-curation.json}}.
