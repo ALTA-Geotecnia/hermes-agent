@@ -298,6 +298,30 @@ def _block_ids(block: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]
     return [(mid, m) for m in models if isinstance(m, dict) and (mid := str(m.get("id") or "").strip())]
 
 
+# A catalog entry's "role" says what the server allows the model to be used for. Only this one may
+# be offered as a conversation model; the others (today: "memory", for the background memory
+# review) exist so their spend can be routed and measured on their own catalog id.
+SELECTABLE_MODEL_ROLE = "chat"
+
+
+def is_selectable_model(entry: dict[str, Any] | None) -> bool:
+    """Whether a manifest entry may be offered as the conversation model.
+
+    A missing role means "chat": entries predate the field, and an older server does not publish
+    it. Unselectable must be something the catalog states, never something the client assumes.
+    """
+    return str((entry or {}).get("role") or SELECTABLE_MODEL_ROLE).strip().lower() == SELECTABLE_MODEL_ROLE
+
+
+def non_selectable_model_ids(provider: str) -> set[str]:
+    """Ids the catalog marks as not for conversation. Empty on any failure — a catalog the client
+    could not read must not start rejecting models the user legitimately has."""
+    try:
+        return {mid for mid, entry in _block_ids(_get_provider_block(provider)) if not is_selectable_model(entry)}
+    except Exception:
+        return set()
+
+
 def get_curated_openrouter_models() -> list[tuple[str, str]] | None:
     """OpenRouter's curated ``[(id, description), ...]`` from the manifest."""
     rows = _block_ids(_get_provider_block("openrouter"))

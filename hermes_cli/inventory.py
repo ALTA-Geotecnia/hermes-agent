@@ -767,6 +767,12 @@ def _alta_provider_row(current_provider: str = "") -> dict | None:
     if not isinstance(block, dict):
         return None
     entries = [m for m in (block.get("models") or []) if isinstance(m, dict) and str(m.get("id") or "").strip()]
+    # Server-declared role filter. This row is the single source for every picker — CLI /model,
+    # `hermes model`, REST /api/model/options and the desktop model menu all resolve through
+    # build_models_payload — so a model the catalog marks non-chat (the background memory model)
+    # disappears from all of them at once. Hand-typed /model ids bypass pickers entirely and are
+    # rejected separately in models_validate.
+    entries = [m for m in entries if model_catalog.is_selectable_model(m)]
     if not entries:
         return None
     models = [str(m["id"]).strip() for m in entries]
