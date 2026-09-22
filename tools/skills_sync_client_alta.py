@@ -50,6 +50,11 @@ def _state_path() -> Path:
     return _alta_skills_dir() / _STATE_FILENAME
 
 
+def _user_agent() -> str:
+    from hermes_cli import __version__
+    return f"hermes-cli/{__version__}"
+
+
 def _resolve_alta_sync_target() -> Optional[tuple[str, str]]:
     """``(base_url, token)`` for the ALTA skills catalog, or None when either is unset.
 
@@ -73,7 +78,13 @@ def fetch_catalog() -> Optional[dict[str, Any]]:
         return None
     base_url, token = target
     url = base_url + _CATALOG_PATH_SUFFIX
-    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+    # The User-Agent is not cosmetic: the server sits behind Cloudflare, which answers a
+    # default "Python-urllib/x.y" agent with a 1010 block before the request ever reaches it.
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": _user_agent(),
+        "Authorization": f"Bearer {token}",
+    }
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT_SECONDS) as resp:
@@ -98,12 +109,12 @@ def _read_state() -> dict[str, Any]:
         return {}
 
 
-def _write_state(version: Any, updated_at: Any, slugs: set[str]) -> None:
+def _write_state(version: Any, updated_at: Any, hashes: dict[str, Any]) -> None:
     from utils import atomic_json_write
     atomic_json_write(_state_path(), {
         "version": version,
         "updated_at": updated_at,
-        "slugs": sorted(slugs),
+        "hashes": hashes,
     })
 
 
@@ -170,10 +181,11 @@ def _ensure_external_dir_registered() -> None:
 def pull_alta_skills() -> Optional[dict[str, Any]]:
     """Fetch the ALTA catalog and materialize it into ``_alta/``.
 
-    No-op (returns None) when the target is inert, the fetch fails, or the catalog's
-    version/updated_at AND slug set already match what is on disk. Otherwise writes each
-    skill's files, removes mirrored skills no longer in the catalog, updates the local sync
-    state, and ensures the mirror directory is listed in ``skills.external_dirs``.
+    A skill is rewritten only when its ``content_hash`` differs from the mirrored one or
+    its directory is missing — the server publishes that hash precisely so the client can
+    tell a changed skill from an unchanged one without comparing bytes. Relying on the
+    catalog's ``updated_at`` instead would miss a change in what the server renders from
+    unchanged records. Returns None when nothing had to be written or removed.
 
     Returns ``{"updated": [...slugs...], "removed": [...slugs...]}`` on a real sync.
     """
@@ -182,19 +194,18 @@ def pull_alta_skills() -> Optional[dict[str, Any]]:
         return None
 
     skills = [s for s in (catalog.get("skills") or []) if isinstance(s, dict) and s.get("slug")]
-    version = catalog.get("version")
-    updated_at = catalog.get("updated_at")
-    incoming_slugs = {s["slug"] for s in skills}
+    incoming_hashes = {s["slug"]: s.get("content_hash") for s in skills}
 
     state = _read_state()
+    mirrored_hashes = state.get("hashes") or {}
     on_disk_slugs = _existing_slug_dirs()
-    unchanged = (
-        state.get("version") == version
-        and state.get("updated_at") == updated_at
-        and set(state.get("slugs") or []) == incoming_slugs
-        and on_disk_slugs == incoming_slugs
-    )
-    if unchanged:
+
+    stale = {
+        slug for slug, digest in incoming_hashes.items()
+        if mirrored_hashes.get(slug) != digest or slug not in on_disk_slugs
+    }
+    removed = sorted(on_disk_slugs - set(incoming_hashes))
+    if not stale and not removed:
         return None
 
     root = _alta_skills_dir()
@@ -202,16 +213,15 @@ def pull_alta_skills() -> Optional[dict[str, Any]]:
 
     for skill in skills:
         files = skill.get("files")
-        if isinstance(files, dict):
+        if skill["slug"] in stale and isinstance(files, dict):
             _materialize_skill(skill["slug"], files)
 
-    removed = sorted(on_disk_slugs - incoming_slugs)
     for slug in removed:
         shutil.rmtree(root / slug, ignore_errors=True)
 
-    _write_state(version, updated_at, incoming_slugs)
+    _write_state(catalog.get("version"), catalog.get("updated_at"), incoming_hashes)
     _ensure_external_dir_registered()
-    return {"updated": sorted(incoming_slugs), "removed": removed}
+    return {"updated": sorted(stale), "removed": removed}
 
 
 def maybe_pull_alta_skills() -> Optional[dict[str, Any]]:

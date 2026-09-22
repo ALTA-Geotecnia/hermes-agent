@@ -50,12 +50,12 @@ def _catalog(skills, version=1, updated_at="2026-09-21T12:00:00Z") -> dict:
     return {"version": version, "updated_at": updated_at, "skills": skills}
 
 
-def _skill(slug: str, files: dict) -> dict:
+def _skill(slug: str, files: dict, content_hash: str | None = None) -> dict:
     return {
         "slug": slug,
         "name": slug.replace("-", " ").title(),
         "description": f"{slug} description",
-        "content_hash": "deadbeef",
+        "content_hash": content_hash or f"hash-{slug}",
         "files": files,
     }
 
@@ -172,7 +172,8 @@ class TestPullAltaSkills:
         with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: _fake_response(second)):
             result = ssca.pull_alta_skills()
 
-        assert result == {"updated": ["keep-me"], "removed": ["drop-me"]}
+        # keep-me's hash did not change, so only the removal is work worth doing.
+        assert result == {"updated": [], "removed": ["drop-me"]}
         assert not (_pull_dir() / "drop-me").exists()
         assert (_pull_dir() / "keep-me").is_dir()
 
@@ -192,6 +193,40 @@ class TestPullAltaSkills:
 
         assert second_result is None
         materialize.assert_not_called()
+
+    def test_new_content_hash_rewrites_even_when_updated_at_is_unchanged(self):
+        """The server can change what it renders from an unchanged record (e.g. injecting
+        SKILL.md frontmatter), which moves the hash but not updated_at."""
+        from tools import skills_sync_client_alta as ssca
+
+        first = _catalog([_skill("drifter", {"SKILL.md": "antigo"}, content_hash="h1")])
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: _fake_response(first)):
+            ssca.pull_alta_skills()
+        assert (_pull_dir() / "drifter" / "SKILL.md").read_text(encoding="utf-8") == "antigo"
+
+        # Same version and updated_at; only the content and its hash moved.
+        second = _catalog([_skill("drifter", {"SKILL.md": "novo"}, content_hash="h2")])
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: _fake_response(second)):
+            result = ssca.pull_alta_skills()
+
+        assert result == {"updated": ["drifter"], "removed": []}
+        assert (_pull_dir() / "drifter" / "SKILL.md").read_text(encoding="utf-8") == "novo"
+
+    def test_missing_directory_is_rebuilt_even_when_hash_matches(self):
+        from tools import skills_sync_client_alta as ssca
+
+        catalog = _catalog([_skill("fragil", {"SKILL.md": "conteudo"})])
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: _fake_response(catalog)):
+            ssca.pull_alta_skills()
+
+        import shutil
+        shutil.rmtree(_pull_dir() / "fragil")
+
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: _fake_response(catalog)):
+            result = ssca.pull_alta_skills()
+
+        assert result == {"updated": ["fragil"], "removed": []}
+        assert (_pull_dir() / "fragil" / "SKILL.md").read_text(encoding="utf-8") == "conteudo"
 
     def test_registers_mirror_dir_in_external_dirs(self):
         from hermes_cli.config import load_config
