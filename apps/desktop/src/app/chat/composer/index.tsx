@@ -362,7 +362,12 @@ export function ChatBar({
     return onCancel()
   }, [activeQueueSessionKeyRef, onCancel])
 
-  const { compactPill, foldVoice, minimal, stacked: metricsStacked } = useComposerMetrics({
+  const {
+    compactPill,
+    foldVoice,
+    minimal,
+    stacked: metricsStacked
+  } = useComposerMetrics({
     composerDockRef,
     composerRef,
     composerSurfaceRef,

@@ -11,6 +11,4 @@ import { atom } from 'nanostores'
  * every BYOK surface. Read once from the preload bridge at module load; a
  * launch flag can't change mid-session, so nothing rewrites it outside tests.
  */
-export const $byokEnabled = atom<boolean>(
-  typeof window === 'undefined' || window.hermesDesktop?.byokEnabled !== false
-)
+export const $byokEnabled = atom<boolean>(typeof window === 'undefined' || window.hermesDesktop?.byokEnabled !== false)

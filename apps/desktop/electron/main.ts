@@ -9027,7 +9027,11 @@ function getEntraIdentity(): EntraIdentity | null {
 // headers via headersForRemoteRequest) that have no business reaching
 // login.microsoftonline.com, and the token endpoint requires a form body,
 // not JSON.
-function postFormNoAuth(url: string, formBody: Record<string, string>, opts: { timeoutMs?: number } = {}): Promise<any> {
+function postFormNoAuth(
+  url: string,
+  formBody: Record<string, string>,
+  opts: { timeoutMs?: number } = {}
+): Promise<any> {
   return new Promise((resolve, reject) => {
     const body = Buffer.from(new URLSearchParams(formBody).toString(), 'utf8')
     const parsed = new URL(url)
@@ -10470,9 +10474,11 @@ async function buildRemoteConnection(
 }
 
 const sshConnections = new Map<string, any>()
+
 const sshIsolatedKeepalives = createSshIsolatedKeepaliveRegistry({
   log: chunk => sshRememberLog(chunk)
 })
+
 const desktopInstallationId = loadOrCreateInstallationId(DESKTOP_INSTALLATION_PATH)
 
 // Managed SSH update lifecycle (#93042): while an update owns a registered
@@ -14056,6 +14062,7 @@ function createInstanceWindow(
     source && !source.isDestroyed() ? windowConnectionRoutes.get(source.webContents.id) : null,
     { connectionId: null, profile: primaryProfileKey() }
   )
+
   validateDesktopProfileRoute(route)
   const icon = getAppIconPath()
 
@@ -15361,7 +15368,10 @@ ipcMain.handle('hermes:connection:for', async (_event, payload) => {
   const id = String(connectionId || '').trim() || registry.primary
   const spawnPriority = spawnPriorityFrom(priority)
 
-  return connectDesktopProfileRoute({ connectionId: id, profile: String(profile ?? '').trim() || 'default' }, spawnPriority)
+  return connectDesktopProfileRoute(
+    { connectionId: id, profile: String(profile ?? '').trim() || 'default' },
+    spawnPriority
+  )
 })
 
 const windowConnectionRoutes = new WindowConnectionRouteRegistry()
@@ -17074,6 +17084,7 @@ async function dispatchRegistryApiRequest(
   // OUT of the claim: an interactive open coalescing onto an in-flight
   // passive read would otherwise inherit its "no warm backend" rejection.
   const spawnPriority = spawnPriorityFrom(request?.priority)
+
   const connection: any = request?.passive
     ? await ensureRegistryBackend(registryConnectionId, routeProfile, '', { passive: true })
     : await backendDialClaims.run(backendScopeKey(registryConnectionId, routeProfile), () =>
@@ -17218,6 +17229,7 @@ ipcMain.handle('hermes:api', async (_event, request) => {
       prepareLocal: localRequest => prepareProfileDeleteRequest(localRequest).then(() => undefined),
       teardownConnection: (connectionId, profile) => teardownConnectionScopedProfileBackend(connectionId, profile)
     })
+
     desktopProfilePreferences.afterProfileRequest(registryConnectionId, request, response)
 
     return response

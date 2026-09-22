@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { en } from '@/i18n/en'
 
-import { ERROR_CODE_KEYS, errorRecoveryPlan, type ErrorSurface, formatErrorDiagnostics, parseErrorSurface } from './error-surface'
+import {
+  ERROR_CODE_KEYS,
+  errorRecoveryPlan,
+  type ErrorSurface,
+  formatErrorDiagnostics,
+  parseErrorSurface
+} from './error-surface'
 import { errorCardText } from './error-surface-copy'
 
 describe('parseErrorSurface', () => {
@@ -52,13 +58,15 @@ describe('parseErrorSurface', () => {
   })
 
   it('carries the catalog refresh instruction when the backend requests it', () => {
-    expect(parseErrorSurface({
-      layer: 'provider',
-      code: 'model_not_found',
-      retryable: false,
-      provider: 'alta',
-      catalog_refresh: true
-    })?.catalogRefresh).toBe(true)
+    expect(
+      parseErrorSurface({
+        layer: 'provider',
+        code: 'model_not_found',
+        retryable: false,
+        provider: 'alta',
+        catalog_refresh: true
+      })?.catalogRefresh
+    ).toBe(true)
   })
 })
 
@@ -144,7 +152,13 @@ describe('error copy never names a hidden Retry', () => {
   )
 
   it('a credential rejection keeps Retry, so its body may still say retry', () => {
-    const surface: ErrorSurface = { authKind: 'api_key', code: 'auth', layer: 'auth', provider: 'openai', retryable: false }
+    const surface: ErrorSurface = {
+      authKind: 'api_key',
+      code: 'auth',
+      layer: 'auth',
+      provider: 'openai',
+      retryable: false
+    }
     expect(errorRecoveryPlan(surface).retry).toBe(true)
   })
 })
@@ -175,14 +189,17 @@ describe('free-tier refusals', () => {
 
   it('falls back to the table body when an older backend sent no sentence', () => {
     const bare = parseErrorSurface({ code: 'free_tier_rate_limited', layer: 'provider', retryable: true })!
-    expect(errorCardText(en.assistant.thread, bare).body).toBe(en.assistant.thread.errorCodes.free_tier_rate_limited.body)
+    expect(errorCardText(en.assistant.thread, bare).body).toBe(
+      en.assistant.thread.errorCodes.free_tier_rate_limited.body
+    )
     expect(errorRecoveryPlan(bare).retry).toBe(true)
   })
 
   it('every free-tier code has copy and the copy never blames the free model', () => {
     for (const code of ERROR_CODE_KEYS.filter(key => key.startsWith('free_tier_'))) {
       const copy = en.assistant.thread.errorCodes[code]
-      const text = `${typeof copy.title === 'string' ? copy.title : ''} ${typeof copy.body === 'string' ? copy.body : ''}`.toLowerCase()
+      const text =
+        `${typeof copy.title === 'string' ? copy.title : ''} ${typeof copy.body === 'string' ? copy.body : ''}`.toLowerCase()
       expect(text).not.toMatch(/free (service|model|tier) is (off|switched off|unavailable|down)/)
       expect(text).not.toMatch(/anonymous|guest|credential|token|rate limit/)
     }

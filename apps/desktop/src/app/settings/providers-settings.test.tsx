@@ -325,11 +325,13 @@ describe('ProvidersSettings', () => {
     listOAuthProviders.mockResolvedValue({ providers: [] })
 
     const { ProvidersSettings } = await import('./providers-settings')
+
     const { container } = await (async () => {
       let result: ReturnType<typeof render>
       await act(async () => {
         result = render(<ProvidersSettings onClose={vi.fn()} onViewChange={vi.fn()} view="custom-endpoints" />)
       })
+
       return result!
     })()
 

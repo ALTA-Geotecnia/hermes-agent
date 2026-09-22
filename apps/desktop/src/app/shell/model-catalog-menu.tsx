@@ -300,9 +300,14 @@ export function ModelCatalogMenu({
 
     controller.applyPreset(
       {
-        effort: (caps?.reasoning ?? true)
-          ? resolveReasoningEffort(preset.effort ?? defaultEffort, defaultEffort, caps?.reasoning_efforts ?? undefined)
-          : undefined,
+        effort:
+          (caps?.reasoning ?? true)
+            ? resolveReasoningEffort(
+                preset.effort ?? defaultEffort,
+                defaultEffort,
+                caps?.reasoning_efforts ?? undefined
+              )
+            : undefined,
         fast: (caps?.fast ?? false) ? (preset.fast ?? false) : undefined
       },
       { model: family.id, provider: provider.slug }

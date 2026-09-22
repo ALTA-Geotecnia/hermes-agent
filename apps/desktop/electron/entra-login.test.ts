@@ -56,7 +56,10 @@ test('entraAuthorizeEndpoint / entraTokenEndpoint build the v2.0 endpoints for a
     entraAuthorizeEndpoint(ENTRA_TENANT_ID),
     `https://login.microsoftonline.com/${ENTRA_TENANT_ID}/oauth2/v2.0/authorize`
   )
-  assert.equal(entraTokenEndpoint(ENTRA_TENANT_ID), `https://login.microsoftonline.com/${ENTRA_TENANT_ID}/oauth2/v2.0/token`)
+  assert.equal(
+    entraTokenEndpoint(ENTRA_TENANT_ID),
+    `https://login.microsoftonline.com/${ENTRA_TENANT_ID}/oauth2/v2.0/token`
+  )
 })
 
 // --- authorize URL ---
@@ -207,11 +210,7 @@ test('parseStoredEntraSession rejects a non-normalized (snake_case) shape', () =
 
 function fakeIdToken(claims: Record<string, unknown>): string {
   const b64url = (obj: unknown) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '')
+    Buffer.from(JSON.stringify(obj)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
   return `${b64url({ alg: 'RS256' })}.${b64url(claims)}.SIGNATURE-NOT-VERIFIED`
 }

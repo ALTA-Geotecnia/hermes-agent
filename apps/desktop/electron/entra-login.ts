@@ -27,10 +27,7 @@
  * secret embedded in a distributed desktop binary would not be a secret.
  */
 
-import {
-  generatePkcePair,
-  generateState
-} from './native-oauth'
+import { generatePkcePair, generateState } from './native-oauth'
 
 // Non-secret Entra App Registration identifiers (see module docstring).
 export const ENTRA_TENANT_ID = 'eb0548a2-8962-4391-b1f7-9abcf798d345'

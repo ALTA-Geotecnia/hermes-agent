@@ -53,11 +53,7 @@ function makeFakeServerFactory(port = 51235) {
 
 function fakeIdToken(claims: Record<string, unknown>): string {
   const b64url = (obj: unknown) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '')
+    Buffer.from(JSON.stringify(obj)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
   return `${b64url({ alg: 'RS256' })}.${b64url(claims)}.SIG`
 }

@@ -92,7 +92,9 @@ export function persistEntraSession(session: EntraSession | null, io: EntraToken
     // would replace a good entry with nothing: the write would report
     // success, the next launch would show signed out, and the refresh token
     // would be unrecoverable. Fail before touching the store.
-    throw new Error('Secure token storage returned no encrypted payload; refusing to overwrite the stored entra session.')
+    throw new Error(
+      'Secure token storage returned no encrypted payload; refusing to overwrite the stored entra session.'
+    )
   }
 
   try {
