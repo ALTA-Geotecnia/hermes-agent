@@ -4528,6 +4528,12 @@ def _housekeeping_org_skill_sync() -> None:
     maybe_pull_org_skills()
 
 
+def _housekeeping_alta_skill_sync() -> None:
+    """Inert unless the ALTA base URL is configured and an Entra token is available."""
+    from tools.skills_sync_client_alta import maybe_pull_alta_skills
+    maybe_pull_alta_skills()
+
+
 def _housekeeping_auto_archive() -> None:
     """Stale-session auto-archive on a live timer (the startup hook fires once); maybe_auto_archive()
     is gated by sessions.min_interval_hours. Opens its own SessionDB — SQLite connections are thread-bound."""
@@ -4627,6 +4633,7 @@ def _start_gateway_housekeeping(
         (60, "Curator tick", _housekeeping_curator),
         (60, "Sync pull tick", _housekeeping_skill_sync),
         (60, "Org sync pull tick", _housekeeping_org_skill_sync),
+        (60, "ALTA sync pull tick", _housekeeping_alta_skill_sync),
         (60, "Auto-archive tick", _housekeeping_auto_archive),
         (1, "Deferred FTS retry tick", _housekeeping_deferred_fts_retry),
         (1, "gateway housekeeping memory trim", _housekeeping_memory_trim),

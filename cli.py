@@ -3754,9 +3754,10 @@ class HermesCLI(CLIProcessNotificationsMixin, CLIAgentSetupMixin, CLICommandsMix
         try:
             from tools.skills_sync_client import maybe_pull_skills
             from tools.skills_sync_client_org import maybe_pull_org_skills
+            from tools.skills_sync_client_alta import maybe_pull_alta_skills
         except Exception:
             return
-        for pull in (maybe_pull_skills, maybe_pull_org_skills):
+        for pull in (maybe_pull_skills, maybe_pull_org_skills, maybe_pull_alta_skills):
             with suppress(Exception):
                 pull()
 

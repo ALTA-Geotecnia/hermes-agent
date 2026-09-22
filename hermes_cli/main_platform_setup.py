@@ -311,7 +311,9 @@ def _sync_pull(ssc, identity):
     # Refresh the org mirror too when this account belongs to an organisation (no-op
     # otherwise), so one pull covers both.
     from tools.skills_sync_client_org import maybe_pull_org_skills
+    from tools.skills_sync_client_alta import maybe_pull_alta_skills
     org_result = maybe_pull_org_skills()
+    maybe_pull_alta_skills()
     if org_result:
         n = len(org_result.get("updated") or [])
         _err(f"org: refreshed {n} shared skill(s) from your organisation.")
